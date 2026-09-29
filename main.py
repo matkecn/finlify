@@ -23,8 +23,18 @@ from sqlalchemy.orm import Session
 
 import migrations
 from database import Base, SessionLocal, engine
-from models import CATEGORY_KINDS, CATEGORY_PALETTE, TRANSACTION_TYPES, Budget, Category, Transaction
-from money import MoneyError, from_cents, to_cents
+from models import (
+    ACCOUNT_KINDS,
+    CATEGORY_KINDS,
+    CATEGORY_PALETTE,
+    TRANSACTION_TYPES,
+    Account,
+    Budget,
+    Category,
+    Transaction,
+    normalize_label,
+)
+from money import MoneyError, from_cents, parse_signed_cents, to_cents, to_signed_cents
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "finlify.db"
@@ -100,6 +110,75 @@ def assert_category_known(db: Session, name: str) -> str:
     return name
 
 
+def known_account_names(db: Session) -> set[str]:
+    """Return the names of every account currently defined."""
+    return {row.name for row in db.query(Account).all()}
+
+
+def assert_account_known(db: Session, name: str) -> str:
+    """Return ``name`` if it is a defined account.
+
+    Raises:
+        HTTPException: With status 422 if no such account exists, telling the
+            caller to create it first.
+    """
+    if name not in known_account_names(db):
+        raise HTTPException(422, f"Unknown account '{name}'. Create it first.")
+    return name
+
+
+def clean_label(value: str) -> str:
+    """Collapse whitespace in a user-supplied label and cap its length."""
+    return " ".join(str(value).split())[:40]
+
+
+def account_rows(db: Session) -> list[dict]:
+    """Return every account with its running balance and activity totals.
+
+    An account's balance is its opening balance plus its signed transaction
+    sum, where income adds and expense subtracts. Archived accounts are included
+    so that money moved out of a closed account is never lost from the net
+    worth total; callers that need an active-only list can filter on
+    ``is_archived``.
+
+    Returns:
+        Account dictionaries ordered by sort order then name, each augmented
+        with ``income_cents``, ``expenses_cents``, ``net_cents``, ``balance``,
+        and ``balance_cents``.
+    """
+    income: dict[str, int] = {}
+    expenses: dict[str, int] = {}
+    counts: dict[str, int] = {}
+    for t in db.query(Transaction).all():
+        if not t.is_classified:
+            continue
+        counts[t.account] = counts.get(t.account, 0) + 1
+        if t.type == "income":
+            income[t.account] = income.get(t.account, 0) + t.amount_cents
+        else:
+            expenses[t.account] = expenses.get(t.account, 0) + t.amount_cents
+
+    rows = []
+    for account in db.query(Account).order_by(Account.sort_order, Account.name).all():
+        earned = income.get(account.name, 0)
+        spent = expenses.get(account.name, 0)
+        balance = account.opening_balance_cents + earned - spent
+        entry = account.to_dict()
+        entry.update({
+            "income": from_cents(earned),
+            "income_cents": earned,
+            "expenses": from_cents(spent),
+            "expenses_cents": spent,
+            "net": from_cents(earned - spent),
+            "net_cents": earned - spent,
+            "balance": from_cents(balance),
+            "balance_cents": balance,
+            "transaction_count": counts.get(account.name, 0),
+        })
+        rows.append(entry)
+    return rows
+
+
 class TransactionIn(BaseModel):
     """Payload for creating or updating a transaction.
 
@@ -110,6 +189,7 @@ class TransactionIn(BaseModel):
     amount: Decimal = Field(description="Major units, e.g. 19.99")
     type: str
     category: str = Field(min_length=1, max_length=40)
+    account: str = Field(default="Main", min_length=1, max_length=40)
     description: str | None = Field(default=None, max_length=140)
     date: dt_date
 
@@ -136,6 +216,17 @@ class TransactionIn(BaseModel):
         cleaned = " ".join(v.split())[:40]
         if not cleaned:
             raise ValueError("Category cannot be empty")
+        if cleaned == cleaned.lower():
+            return cleaned[:1].upper() + cleaned[1:]
+        return cleaned
+
+    @field_validator("account")
+    @classmethod
+    def _clean_account(cls, v: str) -> str:
+        """Normalise the account name, preserving deliberate capitalisation."""
+        cleaned = " ".join(v.split())[:40]
+        if not cleaned:
+            raise ValueError("Account cannot be empty")
         if cleaned == cleaned.lower():
             return cleaned[:1].upper() + cleaned[1:]
         return cleaned
@@ -212,6 +303,93 @@ class CategoryPatch(BaseModel):
         ):
             return value
         raise ValueError("color must be a hex value like #5eead4")
+
+
+class AccountIn(BaseModel):
+    """Payload for creating an account.
+
+    ``opening_balance`` is expressed in major units and may be zero or negative,
+    because a credit account can start in the red.
+    """
+
+    name: str = Field(min_length=1, max_length=40)
+    kind: str = "checking"
+    color: str | None = Field(default=None, max_length=7)
+    opening_balance: Decimal = Decimal("0")
+    is_archived: bool = False
+
+    @field_validator("kind")
+    @classmethod
+    def _valid_kind(cls, v: str) -> str:
+        """Require the kind to be one of :data:`ACCOUNT_KINDS`."""
+        kind = v.strip().lower()
+        if kind not in ACCOUNT_KINDS:
+            raise ValueError(f"kind must be one of {ACCOUNT_KINDS}")
+        return kind
+
+    @field_validator("color")
+    @classmethod
+    def _valid_color(cls, v: str | None) -> str | None:
+        """Require a six digit hex colour, or allow ``None`` for a default."""
+        if v is None:
+            return None
+        value = v.strip().lower()
+        if len(value) == 7 and value.startswith("#") and all(
+            c in "0123456789abcdef" for c in value[1:]
+        ):
+            return value
+        raise ValueError("color must be a hex value like #5eead4")
+
+    @field_validator("opening_balance")
+    @classmethod
+    def _valid_opening_balance(cls, v: Decimal) -> Decimal:
+        """Reject opening balances that cannot be represented as signed cents."""
+        to_signed_cents(v)
+        return v
+
+
+class AccountPatch(BaseModel):
+    """Payload for a partial update to an account; omitted fields are unchanged."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    kind: str | None = None
+    color: str | None = Field(default=None, max_length=7)
+    opening_balance: Decimal | None = None
+    is_archived: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0)
+
+    @field_validator("kind")
+    @classmethod
+    def _valid_kind(cls, v: str | None) -> str | None:
+        """Require the kind to be one of :data:`ACCOUNT_KINDS` when present."""
+        if v is None:
+            return None
+        kind = v.strip().lower()
+        if kind not in ACCOUNT_KINDS:
+            raise ValueError(f"kind must be one of {ACCOUNT_KINDS}")
+        return kind
+
+    @field_validator("color")
+    @classmethod
+    def _valid_color(cls, v: str | None) -> str | None:
+        """Require a six digit hex colour, or allow ``None`` to leave it alone."""
+        if v is None:
+            return None
+        value = v.strip().lower()
+        if len(value) == 7 and value.startswith("#") and all(
+            c in "0123456789abcdef" for c in value[1:]
+        ):
+            return value
+        raise ValueError("color must be a hex value like #5eead4")
+
+    @field_validator("opening_balance")
+    @classmethod
+    def _valid_opening_balance(cls, v: Decimal | None) -> Decimal | None:
+        """Reject opening balances that cannot be represented as signed cents."""
+        if v is None:
+            return None
+        to_signed_cents(v)
+        return v
 
 
 class BudgetIn(BaseModel):
@@ -480,10 +658,16 @@ def build_summary(db: Session) -> dict:
                 "pct": pct_change(entry["total_cents"], base),
             }
 
+    accounts = account_rows(db)
+    net_worth = sum(account["balance_cents"] for account in accounts)
+
     return {
         "generated_at": today.isoformat(),
         "balance": from_cents(balance),
         "balance_cents": balance,
+        "accounts": accounts,
+        "net_worth": from_cents(net_worth),
+        "net_worth_cents": net_worth,
         "income": from_cents(income),
         "income_cents": income,
         "expenses": from_cents(expenses),
@@ -537,6 +721,7 @@ def health(db: Session = Depends(get_db)):
         "transactions": db.query(Transaction).count(),
         "categories": db.query(Category).count(),
         "budgets": db.query(Budget).count(),
+        "accounts": db.query(Account).count(),
     }
 
 
@@ -577,6 +762,7 @@ def list_transactions(
     offset: int = Query(0, ge=0),
     type: str | None = Query(None),
     category: str | None = Query(None),
+    account: str | None = Query(None),
     search: str | None = Query(None, max_length=140),
     date_from: dt_date | None = Query(None),
     date_to: dt_date | None = Query(None),
@@ -587,8 +773,8 @@ def list_transactions(
     """Return a filtered, sorted, paginated page of transactions.
 
     Alongside the page, the response includes the total match count and the
-    distinct category names in use, so the client can populate a filter control
-    without a second request.
+    distinct category and account names in use, so the client can populate
+    filter controls without a second request.
     """
     query = db.query(Transaction)
 
@@ -596,10 +782,14 @@ def list_transactions(
         query = query.filter(Transaction.type == type.strip().lower())
     if category:
         query = query.filter(Transaction.category == category.strip())
+    if account:
+        query = query.filter(Transaction.account == account.strip())
     if search:
         needle = f"%{search.strip()}%"
         query = query.filter(
-            Transaction.description.ilike(needle) | Transaction.category.ilike(needle)
+            Transaction.description.ilike(needle)
+            | Transaction.category.ilike(needle)
+            | Transaction.account.ilike(needle)
         )
     if date_from:
         query = query.filter(Transaction.date >= date_from)
@@ -610,13 +800,16 @@ def list_transactions(
         "date": Transaction.date,
         "amount": Transaction.amount_cents,
         "category": Transaction.category,
+        "account": Transaction.account,
         "id": Transaction.id,
     }.get(sort, Transaction.date)
     query = query.order_by(column.desc() if order == "desc" else column.asc())
 
     total = query.count()
     rows = query.offset(offset).limit(limit).all()
-    used = {t.category for t in db.query(Transaction).all() if t.is_classified}
+    everything = db.query(Transaction).all()
+    used = {t.category for t in everything if t.is_classified}
+    used_accounts = {t.account for t in everything if t.is_classified}
 
     return {
         "items": [t.to_dict() for t in rows],
@@ -625,6 +818,7 @@ def list_transactions(
         "offset": offset,
         "has_more": offset + len(rows) < total,
         "categories": sorted(used),
+        "accounts": sorted(used_accounts),
     }
 
 
@@ -641,10 +835,12 @@ def _write_transaction(db: Session, row: Transaction, payload: TransactionIn) ->
         raise HTTPException(422, str(exc)) from exc
 
     assert_category_known(db, payload.category)
+    assert_account_known(db, payload.account)
 
     row.amount_cents = cents
     row.type = payload.type
     row.category = payload.category
+    row.account = payload.account
     row.description = payload.description
     row.date = payload.date
     return row
@@ -806,6 +1002,132 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
     return {"deleted": row.name}
 
 
+@app.get("/api/accounts")
+def list_accounts(
+    include_archived: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """Return every account with its balance, plus the overall net worth.
+
+    Archived accounts are omitted unless ``include_archived`` is set. The
+    ``net_worth_cents`` figure always spans every account, archived or not, so
+    money parked in a closed account still counts towards the total.
+    """
+    rows = account_rows(db)
+    net_worth = sum(row["balance_cents"] for row in rows)
+    if not include_archived:
+        rows = [row for row in rows if not row["is_archived"]]
+    return {
+        "accounts": rows,
+        "net_worth": from_cents(net_worth),
+        "net_worth_cents": net_worth,
+    }
+
+
+@app.post("/api/accounts", status_code=201)
+def create_account(payload: AccountIn, db: Session = Depends(get_db)):
+    """Create an account and return it.
+
+    Raises:
+        HTTPException: With status 422 if the name is empty after cleaning, or
+            409 if an account with that name already exists.
+    """
+    name = clean_label(payload.name)
+    if not name:
+        raise HTTPException(422, "Account name cannot be empty")
+    name = normalize_label(name)
+    if db.query(Account).filter(Account.name == name).first():
+        raise HTTPException(409, f"Account '{name}' already exists")
+
+    count = db.query(Account).count()
+    row = Account(
+        name=name,
+        kind=payload.kind,
+        color=payload.color or colour_for(count),
+        opening_balance_cents=to_signed_cents(payload.opening_balance),
+        is_archived=payload.is_archived,
+        sort_order=count,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    created = row.to_dict()
+    created["balance_cents"] = row.opening_balance_cents
+    created["balance"] = from_cents(row.opening_balance_cents)
+    return created
+
+
+@app.put("/api/accounts/{account_id}")
+def update_account(account_id: int, payload: AccountPatch, db: Session = Depends(get_db)):
+    """Apply a partial update to an account and return it.
+
+    Renaming an account rewrites the ``account`` text on every transaction that
+    references the old name, so history stays attached to the account the user
+    recognises.
+
+    Raises:
+        HTTPException: With status 404 if the account does not exist, 422 if the
+            new name is empty, or 409 if the new name is already taken.
+    """
+    row = db.get(Account, account_id)
+    if row is None:
+        raise HTTPException(404, "Account not found")
+
+    if payload.name is not None:
+        new_name = clean_label(payload.name)
+        if not new_name:
+            raise HTTPException(422, "Account name cannot be empty")
+        new_name = normalize_label(new_name)
+        clash = db.query(Account).filter(Account.name == new_name, Account.id != row.id).first()
+        if clash:
+            raise HTTPException(409, f"Account '{new_name}' already exists")
+        if new_name != row.name:
+            for t in db.query(Transaction).filter(Transaction.account == row.name).all():
+                t.account = new_name
+            row.name = new_name
+
+    if payload.kind is not None:
+        row.kind = payload.kind
+    if payload.color is not None:
+        row.color = payload.color
+    if payload.opening_balance is not None:
+        row.opening_balance_cents = to_signed_cents(payload.opening_balance)
+    if payload.is_archived is not None:
+        row.is_archived = payload.is_archived
+    if payload.sort_order is not None:
+        row.sort_order = payload.sort_order
+
+    db.commit()
+    db.refresh(row)
+    return row.to_dict()
+
+
+@app.delete("/api/accounts/{account_id}")
+def delete_account(account_id: int, db: Session = Depends(get_db)):
+    """Delete an account.
+
+    Raises:
+        HTTPException: With status 404 if the account does not exist, or 409 if
+            any transaction still references it. Archiving is the non
+            destructive alternative when history must be kept.
+    """
+    row = db.get(Account, account_id)
+    if row is None:
+        raise HTTPException(404, "Account not found")
+
+    used = db.query(Transaction).filter(Transaction.account == row.name).count()
+    if used:
+        raise HTTPException(
+            409,
+            f"'{row.name}' is used by {used} transaction(s). "
+            "Archive it instead to keep your history intact.",
+        )
+
+    db.delete(row)
+    db.commit()
+    return {"deleted": row.name}
+
+
 @app.get("/api/budgets")
 def list_budgets(db: Session = Depends(get_db)):
     """Return every budget with its spend for the current month."""
@@ -874,6 +1196,7 @@ def export_data(db: Session = Depends(get_db)):
         "transactions": [t.to_dict() for t in db.query(Transaction).all()],
         "categories": [c.to_dict() for c in db.query(Category).all()],
         "budgets": [b.to_dict() for b in db.query(Budget).all()],
+        "accounts": [a.to_dict() for a in db.query(Account).all()],
     }
     stamp = dt_date.today().isoformat()
     return JSONResponse(
@@ -894,6 +1217,7 @@ class ImportIn(BaseModel):
     transactions: list[dict] = Field(default_factory=list)
     categories: list[dict] = Field(default_factory=list)
     budgets: list[dict] = Field(default_factory=list)
+    accounts: list[dict] = Field(default_factory=list)
 
 
 def _imported_cents(item: dict, major_key: str = "amount", cents_key: str = "amount_cents") -> int:
@@ -913,14 +1237,36 @@ def _imported_cents(item: dict, major_key: str = "amount", cents_key: str = "amo
     raise MoneyError("Amount is missing")
 
 
+def _imported_signed_cents(
+    item: dict,
+    major_key: str = "opening_balance",
+    cents_key: str = "opening_balance_cents",
+) -> int:
+    """Read a signed amount from an imported row, accepting major units or cents.
+
+    Used for account opening balances, which may be zero or negative. A row that
+    omits the value entirely contributes a zero balance.
+
+    Raises:
+        MoneyError: If a provided value cannot be represented as signed cents.
+    """
+    if item.get(major_key) is not None:
+        return to_signed_cents(item[major_key])
+    if item.get(cents_key) is not None:
+        return to_signed_cents(Decimal(str(item[cents_key])) / 100)
+    return 0
+
+
 @app.post("/api/import")
 def import_data(payload: ImportIn, db: Session = Depends(get_db)):
     """Import a JSON backup and return counts of what was applied.
 
-    Categories are imported first so transactions can be validated against them.
-    A transaction whose date, type, category, amount, and description already
-    exist is skipped, so repeated imports never duplicate money. Any row that is
-    malformed, references an unknown category, or carries an unusable amount is
+    Accounts and categories are imported first so transactions can be validated
+    against them, and a ``Main`` account is guaranteed to exist even for a
+    legacy backup that predates accounts. A transaction whose date, type,
+    category, account, amount, and description already exist is skipped, so
+    repeated imports never duplicate money. Any row that is malformed,
+    references an unknown category or account, or carries an unusable amount is
     also skipped and counted, rather than aborting the whole import.
 
     Args:
@@ -928,42 +1274,83 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
         db: An open database session.
 
     Returns:
-        Counts of created categories, transactions, and budgets, plus the
-        number of skipped entries.
+        Counts of created accounts, categories, transactions, and budgets, plus
+        the number of skipped entries.
     """
-    stats = {"categories": 0, "transactions": 0, "budgets": 0, "skipped": 0}
+    stats = {"categories": 0, "transactions": 0, "budgets": 0, "accounts": 0, "skipped": 0}
 
     if payload.replace:
         db.query(Transaction).delete()
         db.query(Category).delete()
         db.query(Budget).delete()
+        db.query(Account).delete()
         db.commit()
 
-    for item in payload.categories:
-        name = str(item.get("name", "")).strip()[:40]
-        if not name or db.query(Category).filter(Category.name == name).first():
+    for order, item in enumerate(payload.accounts):
+        raw_name = clean_label(item.get("name", ""))
+        if not raw_name:
+            stats["skipped"] += 1
+            continue
+        name = normalize_label(raw_name)
+        if db.query(Account).filter(Account.name == name).first():
+            stats["skipped"] += 1
+            continue
+        kind = str(item.get("kind", "checking")).lower()
+        try:
+            opening = _imported_signed_cents(item)
+            sort_order = int(item.get("sort_order", order))
+        except (MoneyError, TypeError, ValueError):
+            stats["skipped"] += 1
+            continue
+        db.add(Account(
+            name=name,
+            kind=kind if kind in ACCOUNT_KINDS else "checking",
+            color=item.get("color") or colour_for(order),
+            opening_balance_cents=opening,
+            is_archived=bool(item.get("is_archived", False)),
+            sort_order=sort_order,
+        ))
+        stats["accounts"] += 1
+    db.flush()
+    if db.query(Account).first() is None:
+        db.add(Account(name="Main", kind="checking", color=CATEGORY_PALETTE[0], sort_order=0))
+    db.commit()
+
+    for order, item in enumerate(payload.categories):
+        raw_name = clean_label(item.get("name", ""))
+        if not raw_name:
+            stats["skipped"] += 1
+            continue
+        name = normalize_label(raw_name)
+        if db.query(Category).filter(Category.name == name).first():
             stats["skipped"] += 1
             continue
         kind = str(item.get("kind", "expense")).lower()
+        try:
+            sort_order = int(item.get("sort_order", order))
+        except (TypeError, ValueError):
+            sort_order = order
         db.add(Category(
             name=name,
             kind=kind if kind in CATEGORY_KINDS else "expense",
-            color=item.get("color") or colour_for(db.query(Category).count()),
+            color=item.get("color") or colour_for(order),
             is_archived=bool(item.get("is_archived", False)),
-            sort_order=db.query(Category).count(),
+            sort_order=sort_order,
         ))
         stats["categories"] += 1
     db.commit()
 
     valid = known_category_names(db)
+    valid_accounts = known_account_names(db)
     seen = {
-        (t.date, t.type, t.category, t.amount_cents, t.description or None)
+        (t.date, t.type, t.category, t.account, t.amount_cents, t.description or None)
         for t in db.query(Transaction).all()
     }
     for item in payload.transactions:
         category = str(item.get("category", "")).strip()[:40]
         kind = str(item.get("type", "")).strip().lower()
-        if kind not in TRANSACTION_TYPES or category not in valid:
+        account = clean_label(item.get("account", "Main")) or "Main"
+        if kind not in TRANSACTION_TYPES or category not in valid or account not in valid_accounts:
             stats["skipped"] += 1
             continue
         try:
@@ -973,7 +1360,7 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
             stats["skipped"] += 1
             continue
         description = item.get("description") or None
-        fingerprint = (when, kind, category, cents, description)
+        fingerprint = (when, kind, category, account, cents, description)
         if fingerprint in seen:
             stats["skipped"] += 1
             continue
@@ -982,6 +1369,7 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
             amount_cents=cents,
             type=kind,
             category=category,
+            account=account,
             description=description,
             date=when,
         ))

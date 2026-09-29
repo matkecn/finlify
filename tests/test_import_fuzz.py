@@ -47,7 +47,13 @@ def build_valid_payload(n_categories=3, n_transactions=40, n_budgets=2, seed_rng
 def test_valid_payload_imports_cleanly(client):
     payload, _, _ = build_valid_payload()
     stats = client.post("/api/import", json=payload).json()
-    assert stats == {"categories": 3, "transactions": 40, "budgets": 2, "skipped": 0}
+    assert stats == {
+        "categories": 3,
+        "transactions": 40,
+        "budgets": 2,
+        "accounts": 0,
+        "skipped": 0,
+    }
 
 
 def test_import_totals_match_the_payload(client):

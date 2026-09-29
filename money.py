@@ -58,6 +58,35 @@ def to_cents(value) -> int:
     return cents
 
 
+def to_signed_cents(value) -> int:
+    """Convert an amount that may be zero or negative into integer cents.
+
+    Used for opening balances, where zero and negative values are meaningful
+    (a credit account can open in the red). Rounding is half-up, matching
+    :func:`to_cents`, and the magnitude is capped at :data:`MAX_CENTS`.
+
+    Raises:
+        MoneyError: If the value is not a finite, representable amount.
+    """
+    if isinstance(value, bool):
+        raise MoneyError("Amount must be a number")
+    try:
+        if isinstance(value, float):
+            dec = Decimal(str(value))
+        else:
+            dec = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        raise MoneyError("Amount must be a valid number")
+
+    if not dec.is_finite():
+        raise MoneyError("Amount must be a finite number")
+
+    cents = int(dec.quantize(CENTS, rounding=ROUND_HALF_UP) * 100)
+    if abs(cents) > MAX_CENTS:
+        raise MoneyError("Amount is unrealistically large")
+    return cents
+
+
 def from_cents(cents: int) -> float:
     """Convert integer cents to a float suitable for JSON display.
 
@@ -82,5 +111,20 @@ def parse_cents(raw, field: str = "amount") -> int:
     """
     try:
         return to_cents(raw)
+    except MoneyError as exc:
+        raise MoneyError(f"{field}: {exc}") from exc
+
+
+def parse_signed_cents(raw, field: str = "amount") -> int:
+    """Convert ``raw`` to signed cents, prefixing any error with the field name.
+
+    The signed counterpart to :func:`parse_cents`, used for opening balances
+    where zero and negative values are valid.
+
+    Raises:
+        MoneyError: If conversion fails, with ``field`` named in the message.
+    """
+    try:
+        return to_signed_cents(raw)
     except MoneyError as exc:
         raise MoneyError(f"{field}: {exc}") from exc

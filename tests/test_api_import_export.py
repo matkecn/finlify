@@ -15,7 +15,15 @@ def test_export_shape_and_version(client):
     body = client.get("/api/export").json()
     assert body["app"] == "finlify"
     assert body["export_version"] == 1
-    assert set(body) == {"app", "export_version", "exported_at", "transactions", "categories", "budgets"}
+    assert set(body) == {
+        "app",
+        "export_version",
+        "exported_at",
+        "transactions",
+        "categories",
+        "budgets",
+        "accounts",
+    }
 
 
 def test_export_carries_exact_cents(client):

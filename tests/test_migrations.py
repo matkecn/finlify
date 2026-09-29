@@ -44,6 +44,35 @@ def _legacy_engine(path):
     return engine
 
 
+def _v2_engine(path):
+    """Create a database using the cents schema that predates accounts."""
+    engine = create_engine(f"sqlite:///{path}", future=True)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE transactions ("
+                "id INTEGER PRIMARY KEY, amount_cents INTEGER NOT NULL, "
+                "type TEXT NOT NULL, category TEXT NOT NULL, description TEXT, "
+                "date DATE NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE budgets ("
+                "id INTEGER PRIMARY KEY, category TEXT NOT NULL UNIQUE, "
+                "limit_cents INTEGER NOT NULL DEFAULT 0)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO transactions (id, amount_cents, type, category, description, date) VALUES "
+                "(1, 435, 'expense', 'Coffee', 'Flat white', '2026-09-30'),"
+                "(2, 1234, 'income', 'Salary', NULL, '2026-09-01')"
+            )
+        )
+    return engine
+
+
 def _column_names(engine, table):
     return {c["name"] for c in inspect(engine).get_columns(table)}
 
@@ -59,8 +88,36 @@ def test_migrates_float_money_columns_to_integer_cents(tmp_path):
 
     assert "amount_cents" in _column_names(engine, "transactions")
     assert "amount" not in _column_names(engine, "transactions")
+    assert "account" in _column_names(engine, "transactions")
     assert "limit_cents" in _column_names(engine, "budgets")
     assert "limit_amount" not in _column_names(engine, "budgets")
+
+
+def test_adds_account_column_to_cents_schema(tmp_path):
+    engine = _v2_engine(tmp_path / "v2.db")
+
+    report = migrations.run(engine)
+
+    assert report["account_column"] is True
+    assert report["accounts"] == 1
+
+    with engine.connect() as conn:
+        accounts = set(
+            conn.execute(text("SELECT account FROM transactions")).scalars().all()
+        )
+        seeded = conn.execute(text("SELECT name FROM accounts")).scalars().all()
+
+    assert accounts == {"Main"}
+    assert list(seeded) == ["Main"]
+
+
+def test_account_column_migration_is_idempotent(tmp_path):
+    engine = _v2_engine(tmp_path / "v2.db")
+    migrations.run(engine)
+
+    second = migrations.run(engine)
+
+    assert second["account_column"] is False
 
 
 def test_migrated_transaction_amounts_are_rounded_half_up(tmp_path):
@@ -103,7 +160,13 @@ def test_second_run_is_a_noop(tmp_path):
 
     second = migrations.run(engine)
 
-    assert second == {"transactions_to_cents": False, "budgets_to_cents": False, "categories": 0}
+    assert second == {
+        "transactions_to_cents": False,
+        "budgets_to_cents": False,
+        "account_column": False,
+        "categories": 0,
+        "accounts": 0,
+    }
 
 
 def test_second_run_does_not_alter_values(tmp_path):
@@ -124,7 +187,9 @@ def test_fresh_database_is_seeded_and_versioned(tmp_path):
 
     assert report["transactions_to_cents"] is False
     assert report["budgets_to_cents"] is False
+    assert report["account_column"] is False
     assert report["categories"] == 19
+    assert report["accounts"] == 1
 
     with engine.connect() as conn:
         version = conn.execute(

@@ -83,7 +83,15 @@ def test_overlong_description_is_rejected(client):
 def test_list_returns_page_shape(client):
     make(client)
     body = client.get("/api/transactions").json()
-    assert set(body) == {"items", "total", "limit", "offset", "has_more", "categories"}
+    assert set(body) == {
+        "items",
+        "total",
+        "limit",
+        "offset",
+        "has_more",
+        "categories",
+        "accounts",
+    }
     assert body["total"] == 1 and body["limit"] == 25 and body["offset"] == 0
     assert body["has_more"] is False
 

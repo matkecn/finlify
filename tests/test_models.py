@@ -81,6 +81,7 @@ def test_transaction_to_dict_carries_exact_cents_and_classification():
         amount_cents=435,
         type="expense",
         category="Coffee",
+        account="Main",
         description="Flat white",
         date=date(2026, 9, 30),
     )
@@ -90,6 +91,7 @@ def test_transaction_to_dict_carries_exact_cents_and_classification():
         "amount_cents": 435,
         "type": "expense",
         "category": "Coffee",
+        "account": "Main",
         "description": "Flat white",
         "date": "2026-09-30",
         "classified": True,

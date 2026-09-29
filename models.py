@@ -13,6 +13,7 @@ from database import Base
 
 TRANSACTION_TYPES = ("income", "expense")
 CATEGORY_KINDS = ("income", "expense")
+ACCOUNT_KINDS = ("checking", "savings", "credit", "cash", "investment")
 
 CATEGORY_PALETTE = (
     "#5eead4", "#a78bfa", "#f0abfc", "#bef264", "#fbbf24", "#fb7185",
@@ -20,12 +21,28 @@ CATEGORY_PALETTE = (
 )
 
 
+def normalize_label(value: str) -> str:
+    """Normalise a user-facing label such as a category or account name.
+
+    Whitespace is collapsed and the value is truncated to 40 characters. Title
+    casing is applied only when the input is entirely lowercase, so names such
+    as ``iPhone`` or ``ATMs`` keep the casing the user typed.
+    """
+    cleaned = " ".join(str(value).split())[:40]
+    if not cleaned:
+        raise ValueError("Name cannot be empty")
+    if cleaned == cleaned.lower():
+        return cleaned[:1].upper() + cleaned[1:]
+    return cleaned
+
+
 class Transaction(Base):
     """A single income or expense entry.
 
-    ``category`` is stored as text rather than a foreign key so that renaming or
-    archiving a category never rewrites history. Referential integrity is
-    enforced in the API layer against the :class:`Category` table.
+    ``category`` and ``account`` are stored as text rather than foreign keys so
+    that renaming or archiving never rewrites history. Referential integrity is
+    enforced in the API layer against the :class:`Category` and :class:`Account`
+    tables.
     """
 
     __tablename__ = "transactions"
@@ -34,6 +51,7 @@ class Transaction(Base):
     amount_cents = Column(Integer, nullable=False)
     type = Column(String, nullable=False)
     category = Column(String, nullable=False)
+    account = Column(String, nullable=False, default="Main", index=True)
     description = Column(String, nullable=True)
     date = Column(Date, nullable=False)
 
@@ -65,6 +83,7 @@ class Transaction(Base):
             "amount_cents": self.amount_cents,
             "type": self.type,
             "category": self.category,
+            "account": self.account,
             "description": self.description,
             "date": self.date.isoformat() if self.date else None,
             "classified": self.is_classified,
@@ -89,18 +108,8 @@ class Category(Base):
 
     @validates("name")
     def _clean_name(self, _key, value: str) -> str:
-        """Normalise a category name, preserving deliberate capitalisation.
-
-        Whitespace is collapsed and the value is truncated to 40 characters.
-        Title casing is applied only when the input is entirely lowercase, so
-        names such as ``iPhone`` or ``ATMs`` keep the casing the user typed.
-        """
-        cleaned = " ".join(str(value).split())[:40]
-        if not cleaned:
-            raise ValueError("Category name cannot be empty")
-        if cleaned == cleaned.lower():
-            return cleaned[:1].upper() + cleaned[1:]
-        return cleaned
+        """Normalise a category name, preserving deliberate capitalisation."""
+        return normalize_label(value)
 
     @validates("kind")
     def _check_kind(self, _key, value: str) -> str:
@@ -117,6 +126,58 @@ class Category(Base):
             "name": self.name,
             "kind": self.kind,
             "color": self.color,
+            "is_archived": bool(self.is_archived),
+            "sort_order": self.sort_order,
+        }
+
+
+class Account(Base):
+    """A wallet, bank account, or card that transactions are filed against.
+
+    Transactions reference an account by name, so a rename cascades in the API
+    layer while history stays intact. Every database is seeded with a ``Main``
+    account so that the ledger always has somewhere to post.
+
+    ``opening_balance_cents`` is a signed integer: it may be zero or negative
+    (a credit card can open in the red) and is the anchor for the account's
+    running balance, which is ``opening_balance_cents`` plus the signed sum of
+    its transactions.
+    """
+
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    kind = Column(String, nullable=False, default="checking")
+    color = Column(String, nullable=False, default=CATEGORY_PALETTE[0])
+    opening_balance_cents = Column(Integer, nullable=False, default=0)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    @validates("name")
+    def _clean_name(self, _key, value: str) -> str:
+        """Normalise an account name, preserving deliberate capitalisation."""
+        return normalize_label(value)
+
+    @validates("kind")
+    def _check_kind(self, _key, value: str) -> str:
+        """Validate that the kind is one of :data:`ACCOUNT_KINDS`."""
+        kind = str(value).strip().lower()
+        if kind not in ACCOUNT_KINDS:
+            raise ValueError(f"kind must be one of {ACCOUNT_KINDS}")
+        return kind
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serialisable representation, including exact cents."""
+        from money import from_cents
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": self.kind,
+            "color": self.color,
+            "opening_balance": from_cents(self.opening_balance_cents),
+            "opening_balance_cents": self.opening_balance_cents,
             "is_archived": bool(self.is_archived),
             "sort_order": self.sort_order,
         }
