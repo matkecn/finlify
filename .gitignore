@@ -1,0 +1,33 @@
+# Finlify local data and backups (never commit real financial data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+finlify-backup-*.json
+backups/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

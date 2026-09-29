@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finlify — Personal Finance</title>
+<meta name="description" content="Local-first personal finance. Your data never leaves this machine.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="backdrop" aria-hidden="true">
+  <div class="ambient"></div>
+  <div class="grid-lines"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-text">FINLIFY</span>
+    <span class="brand-tag">LOCAL</span>
+  </div>
+
+  <nav class="topnav" aria-label="Sections">
+    <a class="topnav-link is-active" href="#overview">Overview</a>
+    <a class="topnav-link" href="#breakdown">Breakdown</a>
+    <a class="topnav-link" href="#budgets">Budgets</a>
+    <a class="topnav-link" href="#categories">Categories</a>
+    <a class="topnav-link" href="#ledger">Ledger</a>
+  </nav>
+
+  <div class="topbar-right">
+    <span class="status-pill" id="statusPill">
+      <span class="status-dot"></span>
+      <span class="status-text">syncing</span>
+    </span>
+    <time class="clock" id="clock">--:--:--</time>
+    <button class="btn btn-primary" id="openModal">
+      <span class="btn-glyph">+</span> Add
+    </button>
+  </div>
+</header>
+
+<main id="overview">
+
+  <section class="hero">
+    <div class="hero-text">
+      <h1 class="hero-title" id="greeting">Welcome back</h1>
+      <p class="hero-sub" id="heroSub">Loading…</p>
+    </div>
+    <div class="hero-controls">
+      <div class="segmented" role="group" aria-label="Time range">
+        <button class="seg is-active" data-months="3">3M</button>
+        <button class="seg" data-months="6">6M</button>
+        <button class="seg" data-months="12">12M</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="stat-grid" aria-label="Key metrics">
+    <article class="stat" data-accent="cyan">
+      <div class="stat-head">
+        <span class="stat-dot"></span>
+        <span class="stat-label">Net balance</span>
+      </div>
+      <div class="stat-value" id="statBalance">€0.00</div>
+      <div class="stat-foot">
+        <span class="delta" id="statBalanceDelta"></span>
+        <span class="stat-meta" id="statBalanceMeta">all time</span>
+      </div>
+      <div class="stat-spark"><canvas id="sparkBalance"></canvas></div>
+    </article>
+
+    <article class="stat" data-accent="violet">
+      <div class="stat-head">
+        <span class="stat-dot"></span>
+        <span class="stat-label">Income</span>
+      </div>
+      <div class="stat-value" id="statIncome">€0.00</div>
+      <div class="stat-foot">
+        <span class="delta" id="statIncomeDelta"></span>
+        <span class="stat-meta" id="statIncomeMeta">this month</span>
+      </div>
+      <div class="stat-spark"><canvas id="sparkIncome"></canvas></div>
+    </article>
+
+    <article class="stat" data-accent="pink">
+      <div class="stat-head">
+        <span class="stat-dot"></span>
+        <span class="stat-label">Expenses</span>
+      </div>
+      <div class="stat-value" id="statExpenses">€0.00</div>
+      <div class="stat-foot">
+        <span class="delta" id="statExpensesDelta"></span>
+        <span class="stat-meta" id="statExpensesMeta">this month</span>
+      </div>
+      <div class="stat-spark"><canvas id="sparkExpenses"></canvas></div>
+    </article>
+
+    <article class="stat" data-accent="lime">
+      <div class="stat-head">
+        <span class="stat-dot"></span>
+        <span class="stat-label">Savings rate</span>
+      </div>
+      <div class="stat-value" id="statSavings">0%</div>
+      <div class="stat-foot">
+        <span class="stat-meta" id="statSavingsMeta">of gross income</span>
+      </div>
+      <div class="stat-spark"><canvas id="sparkSavings"></canvas></div>
+    </article>
+  </section>
+
+  <section class="panel panel-cashflow">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Cash flow</h2>
+        <p class="panel-sub" id="cashflowSub">Income vs expenses</p>
+      </div>
+      <div class="panel-actions">
+        <button class="chip is-active" data-series="income"><i class="swatch" style="--c:#5eead4"></i>Income</button>
+        <button class="chip is-active" data-series="expenses"><i class="swatch" style="--c:#f0abfc"></i>Expenses</button>
+      </div>
+    </div>
+    <div class="chart-wrap chart-lg"><canvas id="cashflowChart"></canvas></div>
+    <div class="tooltip" id="cashflowTip" hidden></div>
+  </section>
+
+  <section class="split" id="breakdown">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Spending mix</h2>
+          <p class="panel-sub" id="breakdownSub">By category</p>
+        </div>
+      </div>
+      <div class="chart-wrap chart-donut"><canvas id="categoryChart"></canvas></div>
+      <ul class="legend" id="categoryLegend"></ul>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Daily pulse</h2>
+          <p class="panel-sub">Net flow, last 30 days</p>
+        </div>
+      </div>
+      <div class="chart-wrap chart-md"><canvas id="dailyChart"></canvas></div>
+      <div class="tooltip" id="dailyTip" hidden></div>
+      <div class="pulse-stats">
+        <div><span class="mini-label">Avg daily</span><span class="mini-value" id="pulseAvg">—</span></div>
+        <div><span class="mini-label">Busiest day</span><span class="mini-value" id="pulsePeak">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="split split-third">
+    <div class="panel" id="budgets">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Budgets</h2>
+          <p class="panel-sub">Monthly limits per category</p>
+        </div>
+      </div>
+      <ul class="budget-list" id="budgetList"></ul>
+      <form class="budget-form" id="budgetForm">
+        <select id="budgetCategory" aria-label="Category"></select>
+        <input type="number" id="budgetLimit" placeholder="Limit €" step="0.01" min="0" required>
+        <button class="btn btn-ghost" type="submit">Set</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Insights</h2>
+          <p class="panel-sub">Derived from your data</p>
+        </div>
+      </div>
+      <ul class="insights" id="insightList"></ul>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title">Forecast</h2>
+          <p class="panel-sub">Runway &amp; projection</p>
+        </div>
+      </div>
+      <ul class="insights" id="forecastList"></ul>
+    </div>
+  </section>
+
+  <section class="panel panel-categories" id="categories">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Categories</h2>
+        <p class="panel-sub">Transactions must use a category you define</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-ghost" id="exportBtn" type="button">Export backup</button>
+        <button class="btn btn-ghost" id="importBtn" type="button">Import</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+    </div>
+
+    <form class="cat-form" id="categoryForm">
+      <input type="text" id="catName" placeholder="New category name" maxlength="40" required>
+      <select id="catKind" aria-label="Type">
+        <option value="expense">Expense</option>
+        <option value="income">Income</option>
+      </select>
+      <input type="color" id="catColor" value="#5eead4" aria-label="Colour">
+      <button class="btn btn-ghost" type="submit">Add category</button>
+    </form>
+
+    <div class="cat-lists" id="categoryLists"></div>
+    <p class="panel-foot-note" id="catNote">Deleting is blocked while a category has transactions — archive it instead to keep history.</p>
+  </section>
+
+  <section class="panel panel-ledger" id="ledger">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Ledger</h2>
+        <p class="panel-sub" id="ledgerSub">All transactions</p>
+      </div>
+      <span class="panel-hint">Click a row to edit</span>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="filterSearch" placeholder="Search description or category…" aria-label="Search">
+      <select id="filterType" aria-label="Type">
+        <option value="">All types</option>
+        <option value="income">Income</option>
+        <option value="expense">Expense</option>
+      </select>
+      <select id="filterCategory" aria-label="Category"><option value="">All categories</option></select>
+      <select id="filterSort" aria-label="Sort">
+        <option value="date">Date</option>
+        <option value="amount">Amount</option>
+        <option value="category">Category</option>
+      </select>
+      <select id="filterOrder" aria-label="Order">
+        <option value="desc">Newest first</option>
+        <option value="asc">Oldest first</option>
+      </select>
+    </div>
+
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="ledgerBody"></tbody>
+      </table>
+    </div>
+
+    <div class="pagination">
+      <button class="btn btn-ghost" id="pagePrev" type="button">← Prev</button>
+      <span class="page-info" id="pageInfo">—</span>
+      <button class="btn btn-ghost" id="pageNext" type="button">Next →</button>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Finlify · local-first · your data stays in <code>finlify.db</code> on this machine</span>
+    <span id="footCount"></span>
+  </footer>
+</main>
+
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <h2 id="modalTitle">New transaction</h2>
+      <button class="icon-btn" id="closeModal" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <form id="txForm">
+      <div class="type-toggle">
+        <button type="button" class="seg is-active" data-type="expense">Expense</button>
+        <button type="button" class="seg" data-type="income">Income</button>
+      </div>
+
+      <label class="field">
+        <span>Amount</span>
+        <input type="text" id="txAmount" inputmode="decimal" placeholder="0.00" autocomplete="off" required>
+      </label>
+
+      <label class="field">
+        <span>Category</span>
+        <input type="text" id="txCategory" list="categoryPresets" placeholder="Choose or type a new one" maxlength="40" required>
+        <datalist id="categoryPresets"></datalist>
+      </label>
+
+      <label class="field">
+        <span>Description</span>
+        <input type="text" id="txDescription" placeholder="Optional note" maxlength="140">
+      </label>
+
+      <label class="field">
+        <span>Date</span>
+        <input type="date" id="txDate" required>
+      </label>
+
+      <p class="form-error" id="txError" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="txSubmit">Save transaction</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/static/charts.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
