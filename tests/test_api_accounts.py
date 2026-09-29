@@ -247,6 +247,72 @@ def test_export_includes_accounts(client):
     assert wallet["opening_balance_cents"] == 1250
 
 
+def test_delete_last_account_is_blocked(client):
+    main = client.get("/api/accounts").json()["accounts"][0]
+    response = client.delete(f"/api/accounts/{main['id']}")
+    assert response.status_code == 409
+    assert "last account" in response.json()["detail"].lower()
+
+
+def test_deleting_last_account_allowed_once_another_exists(client):
+    main = client.get("/api/accounts").json()["accounts"][0]
+    create_account(client, "Wallet")
+    assert client.delete(f"/api/accounts/{main['id']}").status_code == 200
+
+
+def test_create_rejects_case_only_duplicate(client):
+    create_account(client, "Main")
+    assert create_account(client, "MAIN").status_code == 409
+
+
+def test_rename_rejects_case_only_duplicate(client):
+    other = create_account(client, "Pocket").json()
+    response = client.put(f"/api/accounts/{other['id']}", json={"name": "MAIN"})
+    assert response.status_code == 409
+
+
+def test_create_account_response_includes_activity_totals(client):
+    created = create_account(client, "Wallet", opening_balance="10.00").json()
+    assert created["transaction_count"] == 0
+    assert created["income_cents"] == 0
+    assert created["balance_cents"] == 1000
+
+
+def test_update_account_response_includes_balance(client):
+    created = create_account(client, "Wallet").json()
+    add_tx(client, "5.00", kind="income", category="Salary", account="Wallet")
+    updated = client.put(f"/api/accounts/{created['id']}", json={"color": "#60a5fa"}).json()
+    assert updated["color"] == "#60a5fa"
+    assert updated["income_cents"] == 500
+    assert updated["balance_cents"] == 500
+
+
+def test_import_deduplicates_repeated_accounts(client):
+    payload = {
+        "replace": True,
+        "accounts": [{"name": "Dup"}, {"name": "Dup"}, {"name": "DUP"}],
+        "categories": [],
+        "transactions": [],
+        "budgets": [],
+    }
+    stats = client.post("/api/import", json=payload).json()
+    assert stats["accounts"] == 1
+    assert stats["skipped"] == 2
+
+
+def test_import_deduplicates_repeated_categories(client):
+    payload = {
+        "replace": True,
+        "accounts": [],
+        "categories": [{"name": "Dup"}, {"name": "Dup"}],
+        "transactions": [],
+        "budgets": [],
+    }
+    stats = client.post("/api/import", json=payload).json()
+    assert stats["categories"] == 1
+    assert stats["skipped"] == 1
+
+
 def test_account_export_import_round_trip_preserves_balances(client):
     create_account(client, "Wallet", kind="cash", opening_balance="10.00")
     add_tx(client, "5.00", kind="income", category="Salary", account="Wallet")

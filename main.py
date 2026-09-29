@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import migrations
@@ -177,6 +178,19 @@ def account_rows(db: Session) -> list[dict]:
         })
         rows.append(entry)
     return rows
+
+
+def account_entry(db: Session, account_id: int) -> dict:
+    """Return a single account row with its balance and activity totals."""
+    return next(row for row in account_rows(db) if row["id"] == account_id)
+
+
+def account_name_taken(db: Session, name: str, exclude_id: int | None = None) -> bool:
+    """Whether an account with ``name`` already exists, ignoring case."""
+    query = db.query(Account).filter(func.lower(Account.name) == name.lower())
+    if exclude_id is not None:
+        query = query.filter(Account.id != exclude_id)
+    return query.first() is not None
 
 
 class TransactionIn(BaseModel):
@@ -1036,7 +1050,7 @@ def create_account(payload: AccountIn, db: Session = Depends(get_db)):
     if not name:
         raise HTTPException(422, "Account name cannot be empty")
     name = normalize_label(name)
-    if db.query(Account).filter(Account.name == name).first():
+    if account_name_taken(db, name):
         raise HTTPException(409, f"Account '{name}' already exists")
 
     count = db.query(Account).count()
@@ -1051,10 +1065,7 @@ def create_account(payload: AccountIn, db: Session = Depends(get_db)):
     db.add(row)
     db.commit()
     db.refresh(row)
-    created = row.to_dict()
-    created["balance_cents"] = row.opening_balance_cents
-    created["balance"] = from_cents(row.opening_balance_cents)
-    return created
+    return account_entry(db, row.id)
 
 
 @app.put("/api/accounts/{account_id}")
@@ -1078,8 +1089,7 @@ def update_account(account_id: int, payload: AccountPatch, db: Session = Depends
         if not new_name:
             raise HTTPException(422, "Account name cannot be empty")
         new_name = normalize_label(new_name)
-        clash = db.query(Account).filter(Account.name == new_name, Account.id != row.id).first()
-        if clash:
+        if account_name_taken(db, new_name, exclude_id=row.id):
             raise HTTPException(409, f"Account '{new_name}' already exists")
         if new_name != row.name:
             for t in db.query(Transaction).filter(Transaction.account == row.name).all():
@@ -1099,7 +1109,7 @@ def update_account(account_id: int, payload: AccountPatch, db: Session = Depends
 
     db.commit()
     db.refresh(row)
-    return row.to_dict()
+    return account_entry(db, row.id)
 
 
 @app.delete("/api/accounts/{account_id}")
@@ -1114,6 +1124,13 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
     row = db.get(Account, account_id)
     if row is None:
         raise HTTPException(404, "Account not found")
+
+    if db.query(Account).count() <= 1:
+        raise HTTPException(
+            409,
+            "Cannot delete the last account. Create another account first so "
+            "the ledger always has somewhere to post.",
+        )
 
     used = db.query(Transaction).filter(Transaction.account == row.name).count()
     if used:
@@ -1286,15 +1303,17 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
         db.query(Account).delete()
         db.commit()
 
+    seen_accounts: set[str] = set()
     for order, item in enumerate(payload.accounts):
         raw_name = clean_label(item.get("name", ""))
         if not raw_name:
             stats["skipped"] += 1
             continue
         name = normalize_label(raw_name)
-        if db.query(Account).filter(Account.name == name).first():
+        if name.lower() in seen_accounts or account_name_taken(db, name):
             stats["skipped"] += 1
             continue
+        seen_accounts.add(name.lower())
         kind = str(item.get("kind", "checking")).lower()
         try:
             opening = _imported_signed_cents(item)
@@ -1316,15 +1335,17 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
         db.add(Account(name="Main", kind="checking", color=CATEGORY_PALETTE[0], sort_order=0))
     db.commit()
 
+    seen_categories: set[str] = set()
     for order, item in enumerate(payload.categories):
         raw_name = clean_label(item.get("name", ""))
         if not raw_name:
             stats["skipped"] += 1
             continue
         name = normalize_label(raw_name)
-        if db.query(Category).filter(Category.name == name).first():
+        if name in seen_categories or db.query(Category).filter(Category.name == name).first():
             stats["skipped"] += 1
             continue
+        seen_categories.add(name)
         kind = str(item.get("kind", "expense")).lower()
         try:
             sort_order = int(item.get("sort_order", order))
