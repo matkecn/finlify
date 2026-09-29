@@ -25,7 +25,8 @@
     limit: 25,
     total: 0,
     categories: [],
-    filters: { search: "", type: "", category: "", sort: "date", order: "desc" },
+    accounts: [],
+    filters: { search: "", type: "", category: "", account: "", sort: "date", order: "desc" },
   };
 
   var charts = {};
@@ -550,8 +551,11 @@
     body.innerHTML = "";
     state.total = data.total;
 
+    var accountColours = {};
+    state.accounts.forEach(function (a) { accountColours[a.name] = a.color; });
+
     if (!data.items.length) {
-      body.innerHTML = '<tr><td colspan="5"><div class="empty">No transactions match these filters.</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="6"><div class="empty">No transactions match these filters.</div></td></tr>';
     } else {
       data.items.forEach(function (t) {
         var tr = document.createElement("tr");
@@ -560,6 +564,7 @@
           '<td class="col-date">' + FX.date(t.date, { day: "2-digit", month: "short", year: "numeric" }) + "</td>" +
           '<td class="col-desc"></td>' +
           '<td><span class="tag"></span></td>' +
+          '<td class="col-account"><span class="acct"><i class="acct-dot"></i><span class="acct-name"></span></span></td>' +
           '<td class="num col-amount ' + t.type + '">' + signed + FX.money(t.amount) + "</td>" +
           '<td class="col-actions">' +
             '<button class="icon-btn js-edit" aria-label="Edit" title="Edit">' + ICON_EDIT + "</button>" +
@@ -567,6 +572,9 @@
           "</td>";
         tr.querySelector(".col-desc").textContent = t.description || "—";
         tr.querySelector(".tag").textContent = t.category;
+        var acct = tr.querySelector(".acct");
+        acct.querySelector(".acct-dot").style.setProperty("--c", accountColours[t.account] || "var(--text-3)");
+        acct.querySelector(".acct-name").textContent = t.account || "—";
 
         tr.querySelector(".js-edit").addEventListener("click", function (e) {
           e.stopPropagation(); openModal(t);
@@ -613,6 +621,7 @@
     var parts = [];
     if (f.type) parts.push(f.type === "income" ? "income" : "expenses");
     if (f.category) parts.push(f.category);
+    if (f.account) parts.push("in " + f.account);
     if (f.search) parts.push('"' + f.search + '"');
     return parts.length ? "Filtered: " + parts.join(" · ") : "All transactions";
   }
@@ -681,6 +690,109 @@
     });
   }
 
+  /**
+   * Render the account cards and refresh the net worth headline.
+   *
+   * @param {Array<Object>} accounts Accounts with balances from the server.
+   * @param {number} netWorth The summed balance across every account.
+   */
+  function renderAccounts(accounts, netWorth) {
+    var list = $("accountList");
+    list.innerHTML = "";
+    countUp($("netWorth"), netWorth || 0, FX.money);
+
+    if (!accounts.length) {
+      list.innerHTML = '<li class="empty">No accounts yet. Add one below to start organising your money.</li>';
+      $("accountsSub").textContent = "Where your money lives";
+      return;
+    }
+
+    accounts.forEach(function (a) {
+      var li = document.createElement("li");
+      li.className = "account-card" + (a.is_archived ? " is-archived" : "");
+      li.style.setProperty("--c", a.color || "#5eead4");
+
+      var top = document.createElement("div");
+      top.className = "account-top";
+      var name = document.createElement("span");
+      name.className = "account-name";
+      name.textContent = a.name;
+      var kind = document.createElement("span");
+      kind.className = "account-kind";
+      kind.textContent = a.kind;
+      top.appendChild(name);
+      top.appendChild(kind);
+
+      var balance = document.createElement("div");
+      balance.className = "account-balance" + (a.balance < 0 ? " is-neg" : "");
+      balance.textContent = FX.money(a.balance);
+
+      var meta = document.createElement("div");
+      meta.className = "account-meta";
+      meta.textContent = FX.int(a.transaction_count) + " entries · " +
+        FX.signed(a.net) + " net";
+
+      var actions = document.createElement("div");
+      actions.className = "account-actions";
+      var archive = document.createElement("button");
+      archive.type = "button";
+      archive.className = "cat-btn";
+      archive.textContent = a.is_archived ? "Restore" : "Archive";
+      archive.addEventListener("click", function () {
+        patchAccount(a.id, { is_archived: !a.is_archived });
+      });
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "cat-btn is-danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", function () { deleteAccount(a); });
+      actions.appendChild(archive);
+      actions.appendChild(del);
+
+      li.appendChild(top);
+      li.appendChild(balance);
+      li.appendChild(meta);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+
+    var active = accounts.filter(function (a) { return !a.is_archived; }).length;
+    $("accountsSub").textContent = active + " active · " + accounts.length + " total";
+  }
+
+  /** Populate the modal account select and the ledger account filter. */
+  function renderAccountPickers() {
+    var accounts = state.accounts;
+
+    var tx = $("txAccount");
+    var txCurrent = tx.value;
+    tx.innerHTML = "";
+    accounts.forEach(function (a) {
+      var opt = document.createElement("option");
+      opt.value = a.name;
+      opt.textContent = a.is_archived ? a.name + " (archived)" : a.name;
+      tx.appendChild(opt);
+    });
+    if (txCurrent && accounts.some(function (a) { return a.name === txCurrent; })) {
+      tx.value = txCurrent;
+    }
+
+    var filter = $("filterAccount");
+    var current = filter.value;
+    var known = accounts.map(function (a) { return a.name; });
+    if (filter.dataset.sig !== known.join("|")) {
+      filter.dataset.sig = known.join("|");
+      filter.innerHTML = '<option value="">All accounts</option>';
+      accounts.forEach(function (a) {
+        var opt = document.createElement("option");
+        opt.value = a.name;
+        opt.textContent = a.name;
+        filter.appendChild(opt);
+      });
+      filter.value = current;
+    }
+  }
+
   /** Populate the transaction category datalist and the budget category select. */
   function renderCategoryPickers() {
     var list = $("categoryPresets");
@@ -721,13 +833,16 @@
         offset: state.offset,
         type: state.filters.type,
         category: state.filters.category,
+        account: state.filters.account,
         search: state.filters.search,
         sort: state.filters.sort,
         order: state.filters.order,
       })),
       api("/api/categories" + qs({ include_archived: true })),
+      api("/api/accounts" + qs({ include_archived: true })),
     ]).then(function (res) {
       state.categories = res[5].categories || [];
+      state.accounts = res[6].accounts || [];
       renderSummary(res[0]);
       renderSeries(res[1].series);
       renderBreakdown(res[2].categories);
@@ -736,8 +851,10 @@
       renderInsights(res[0]);
       renderForecast(res[0]);
       renderBudgets(res[0].budgets);
+      renderAccounts(state.accounts, res[6].net_worth);
       renderCategoryManager();
       renderCategoryPickers();
+      renderAccountPickers();
       setStatus("is-live", "live");
     }).catch(function (err) {
       setStatus("is-error", "error");
@@ -777,6 +894,7 @@
       amount: raw,
       type: state.modalType,
       category: $("txCategory").value,
+      account: $("txAccount").value,
       description: $("txDescription").value.trim() || null,
       date: $("txDate").value,
     };
@@ -788,6 +906,11 @@
     }
     if (!payload.category.trim()) {
       error.textContent = "Choose a category.";
+      error.hidden = false;
+      return;
+    }
+    if (!payload.account) {
+      error.textContent = "Choose an account.";
       error.hidden = false;
       return;
     }
@@ -880,6 +1003,66 @@
   }
 
   /**
+   * Create an account from the account form.
+   *
+   * @param {SubmitEvent} event The form submission event.
+   */
+  function createAccount(event) {
+    event.preventDefault();
+    var name = $("accountName").value.trim();
+    if (!name) return;
+
+    var opening = $("accountOpening").value.replace(",", ".").trim();
+    api("/api/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name,
+        kind: $("accountKind").value,
+        color: $("accountColor").value,
+        opening_balance: opening === "" ? "0" : opening,
+      }),
+    }).then(function (a) {
+      toast("Account '" + a.name + "' created", "success");
+      $("accountName").value = "";
+      $("accountOpening").value = "";
+      return loadAll();
+    }).catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
+   * Apply a partial update to an account, such as archiving it.
+   *
+   * @param {number} id The account id.
+   * @param {Object} patch Fields to change.
+   */
+  function patchAccount(id, patch) {
+    api("/api/accounts/" + id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then(function () {
+      toast("Account updated", "success");
+      return loadAll();
+    }).catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
+   * Confirm and delete an account.
+   *
+   * @param {Object} account The account to delete.
+   */
+  function deleteAccount(account) {
+    if (!window.confirm("Delete account '" + account.name + "'? This cannot be undone.")) return;
+    api("/api/accounts/" + account.id, { method: "DELETE" })
+      .then(function () {
+        toast("Account '" + account.name + "' deleted", "success");
+        return loadAll();
+      })
+      .catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
    * Set the monthly limit for the selected budget category.
    *
    * @param {SubmitEvent} event The form submission event.
@@ -926,12 +1109,13 @@
       }
       var payload = {
         replace: false,
+        accounts: parsed.accounts || [],
         categories: parsed.categories || [],
         transactions: parsed.transactions || [],
         budgets: parsed.budgets || [],
       };
-      if (!payload.transactions.length && !payload.categories.length) {
-        toast("No transactions or categories found in that file", "error");
+      if (!payload.transactions.length && !payload.categories.length && !payload.accounts.length) {
+        toast("No transactions, categories, or accounts found in that file", "error");
         return;
       }
       api("/api/import", {
@@ -963,6 +1147,7 @@
       state.modalType = transaction.type === "income" ? "income" : "expense";
       $("txAmount").value = String(transaction.amount);
       $("txCategory").value = transaction.category;
+      $("txAccount").value = transaction.account || "Main";
       $("txDescription").value = transaction.description || "";
       $("txDate").value = transaction.date;
       $("modalTitle").textContent = "Edit transaction";
@@ -1046,7 +1231,7 @@
 
     [
       ["filterType", "type"], ["filterCategory", "category"],
-      ["filterSort", "sort"], ["filterOrder", "order"],
+      ["filterAccount", "account"], ["filterSort", "sort"], ["filterOrder", "order"],
     ].forEach(function (pair) {
       $(pair[0]).addEventListener("change", function (e) {
         state.filters[pair[1]] = e.target.value;
@@ -1128,6 +1313,7 @@
     $("txForm").addEventListener("submit", submitTransaction);
     $("budgetForm").addEventListener("submit", submitBudget);
     $("categoryForm").addEventListener("submit", createCategory);
+    $("accountForm").addEventListener("submit", createAccount);
     $("exportBtn").addEventListener("click", exportBackup);
     $("importBtn").addEventListener("click", function () { $("importFile").click(); });
     $("importFile").addEventListener("change", importBackup);

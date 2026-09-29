@@ -25,10 +25,12 @@
 
   <nav class="topnav" aria-label="Sections">
     <a class="topnav-link is-active" href="#overview">Overview</a>
+    <a class="topnav-link" href="#accounts">Accounts</a>
     <a class="topnav-link" href="#breakdown">Breakdown</a>
     <a class="topnav-link" href="#budgets">Budgets</a>
     <a class="topnav-link" href="#categories">Categories</a>
     <a class="topnav-link" href="#ledger">Ledger</a>
+    <a class="topnav-link" href="#about">About</a>
   </nav>
 
   <div class="topbar-right">
@@ -110,6 +112,34 @@
       </div>
       <div class="stat-spark"><canvas id="sparkSavings"></canvas></div>
     </article>
+  </section>
+
+  <section class="panel panel-accounts" id="accounts">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Accounts</h2>
+        <p class="panel-sub" id="accountsSub">Where your money lives</p>
+      </div>
+      <div class="accounts-net">
+        <span class="accounts-net-label">Net worth</span>
+        <span class="accounts-net-value" id="netWorth">€0.00</span>
+      </div>
+    </div>
+    <ul class="account-list" id="accountList"></ul>
+    <form class="account-form" id="accountForm">
+      <input type="text" id="accountName" placeholder="New account name" maxlength="40" required>
+      <select id="accountKind" aria-label="Account kind">
+        <option value="checking">Checking</option>
+        <option value="savings">Savings</option>
+        <option value="credit">Credit</option>
+        <option value="cash">Cash</option>
+        <option value="investment">Investment</option>
+      </select>
+      <input type="color" id="accountColor" value="#a78bfa" aria-label="Colour">
+      <input type="number" id="accountOpening" placeholder="Opening €" step="0.01">
+      <button class="btn btn-ghost" type="submit">Add account</button>
+    </form>
+    <p class="panel-foot-note">A balance is the opening amount plus income minus expenses. Archive an account to hide it without losing its history.</p>
   </section>
 
   <section class="panel panel-cashflow">
@@ -236,6 +266,7 @@
         <option value="expense">Expense</option>
       </select>
       <select id="filterCategory" aria-label="Category"><option value="">All categories</option></select>
+      <select id="filterAccount" aria-label="Account"><option value="">All accounts</option></select>
       <select id="filterSort" aria-label="Sort">
         <option value="date">Date</option>
         <option value="amount">Amount</option>
@@ -251,7 +282,7 @@
       <table class="ledger">
         <thead>
           <tr>
-            <th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th>
+            <th>Date</th><th>Description</th><th>Category</th><th>Account</th><th class="num">Amount</th><th></th>
           </tr>
         </thead>
         <tbody id="ledgerBody"></tbody>
@@ -263,6 +294,46 @@
       <span class="page-info" id="pageInfo">—</span>
       <button class="btn btn-ghost" id="pageNext" type="button">Next →</button>
     </div>
+  </section>
+
+  <section class="panel panel-about" id="about">
+    <div class="about-head">
+      <div class="about-brand">
+        <img class="about-icon" src="/static/logo.svg" alt="" width="52" height="52">
+        <div>
+          <h2 class="about-title">About Finlify</h2>
+          <p class="about-tagline">A local-first personal finance dashboard that treats your money with exact arithmetic and never phones home.</p>
+        </div>
+      </div>
+      <div class="about-links">
+        <a class="btn btn-ghost" href="https://github.com/matkecn/finlify" target="_blank" rel="noopener">Source</a>
+        <a class="btn btn-ghost" href="/docs" target="_blank" rel="noopener">API docs</a>
+        <a class="btn btn-ghost" href="/api/export">Export data</a>
+      </div>
+    </div>
+    <div class="about-grid">
+      <article class="about-card">
+        <h3>Exact money</h3>
+        <p>Every amount is stored and summed as integer cents and only turned into decimals for display, so balances never drift.</p>
+      </article>
+      <article class="about-card">
+        <h3>Local first</h3>
+        <p>FastAPI and SQLite run on your own machine. No accounts, no telemetry, no network calls — just one database file you own.</p>
+      </article>
+      <article class="about-card">
+        <h3>Zero dependencies</h3>
+        <p>The charts are hand-drawn on canvas, so the interface pulls in nothing from a CDN and works completely offline.</p>
+      </article>
+      <article class="about-card">
+        <h3>Yours to keep</h3>
+        <p>Export a versioned JSON backup at any time and restore it losslessly, on this machine or another one.</p>
+      </article>
+    </div>
+    <dl class="about-meta">
+      <div><dt>Stack</dt><dd>FastAPI · SQLite · Jinja2 · vanilla JS</dd></div>
+      <div><dt>Money model</dt><dd>Integer cents, half-up rounding</dd></div>
+      <div><dt>Licence</dt><dd>MIT</dd></div>
+    </dl>
   </section>
 
   <footer class="foot">
@@ -295,6 +366,11 @@
         <span>Category</span>
         <input type="text" id="txCategory" list="categoryPresets" placeholder="Choose or type a new one" maxlength="40" required>
         <datalist id="categoryPresets"></datalist>
+      </label>
+
+      <label class="field">
+        <span>Account</span>
+        <select id="txAccount"></select>
       </label>
 
       <label class="field">
