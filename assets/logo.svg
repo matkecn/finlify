@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 452 128" width="452" height="128" role="img" aria-label="Finlify">
+  <defs>
+    <linearGradient id="l-stroke" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="55%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#f0abfc"/>
+    </linearGradient>
+    <linearGradient id="l-area" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5eead4" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#5eead4" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="l-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c111c"/>
+      <stop offset="100%" stop-color="#07080c"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="128" height="128" rx="30" fill="url(#l-bg)"/>
+  <rect x="3.5" y="3.5" width="121" height="121" rx="26.5" fill="none" stroke="url(#l-stroke)" stroke-opacity="0.30" stroke-width="1.6"/>
+  <g stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.4">
+    <line x1="22" y1="56" x2="106" y2="56"/>
+    <line x1="22" y1="74" x2="106" y2="74"/>
+    <line x1="22" y1="92" x2="106" y2="92"/>
+  </g>
+  <path d="M22 84 L44 63 L64 72 L85 47 L106 31 L106 92 L22 92 Z" fill="url(#l-area)"/>
+  <path d="M22 84 L44 63 L64 72 L85 47 L106 31" fill="none" stroke="url(#l-stroke)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="106" cy="31" r="10" fill="#5eead4" fill-opacity="0.18"/>
+  <circle cx="106" cy="31" r="5" fill="#5eead4"/>
+
+  <text x="160" y="87" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif"
+        font-size="62" font-weight="650" letter-spacing="-1.5" fill="#e9edf5">Finlify</text>
+</svg>
