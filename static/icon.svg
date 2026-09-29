@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Finlify">
+  <defs>
+    <linearGradient id="stroke" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="55%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#f0abfc"/>
+    </linearGradient>
+    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5eead4" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#5eead4" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c111c"/>
+      <stop offset="100%" stop-color="#07080c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <rect x="7" y="7" width="242" height="242" rx="51" fill="none" stroke="url(#stroke)" stroke-opacity="0.30" stroke-width="2"/>
+
+  <g stroke="#ffffff" stroke-opacity="0.06" stroke-width="2">
+    <line x1="44" y1="112" x2="212" y2="112"/>
+    <line x1="44" y1="148" x2="212" y2="148"/>
+    <line x1="44" y1="184" x2="212" y2="184"/>
+  </g>
+
+  <path d="M44 168 L88 126 L128 144 L170 94 L212 62 L212 184 L44 184 Z" fill="url(#area)"/>
+  <path d="M44 168 L88 126 L128 144 L170 94 L212 62"
+        fill="none" stroke="url(#stroke)" stroke-width="9"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="212" cy="62" r="16" fill="#5eead4" fill-opacity="0.18"/>
+  <circle cx="212" cy="62" r="8.5" fill="#5eead4"/>
+  <circle cx="212" cy="62" r="3.5" fill="#06121a"/>
+</svg>

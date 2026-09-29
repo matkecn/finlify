@@ -889,7 +889,7 @@ main {
   margin-bottom: 18px;
 }
 .about-brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.about-icon { border-radius: 14px; flex-shrink: 0; }
+.about-icon { display: block; width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0; }
 .about-title { font-size: 16px; }
 .about-tagline { margin: 4px 0 0; font-size: 12.5px; color: var(--text-3); max-width: 62ch; }
 .about-links { display: flex; gap: 6px; flex-wrap: wrap; }
