@@ -223,6 +223,8 @@ finlify/
 ├── migrations.py        # Idempotent migrations + default categories
 ├── database.py          # Engine, sessions, FINLIFY_DATA_DIR support
 ├── requirements.txt
+├── requirements-dev.txt # Test dependencies
+├── pytest.ini
 ├── templates/
 │   └── index.html       # Single-page dashboard
 ├── static/
@@ -230,7 +232,12 @@ finlify/
 │   ├── charts.js        # Canvas chart engine
 │   ├── style.css        # Theme
 │   └── favicon.svg
-└── assets/              # Logo, icon, and banner used in this README
+├── assets/              # Logo, icon, and banner used in this README
+└── tests/               # Pytest suite
+    ├── test_money.py
+    ├── test_models.py
+    ├── test_migrations.py
+    └── test_api_*.py
 ```
 
 ## Privacy
@@ -251,6 +258,20 @@ Run it on `127.0.0.1` and it is reachable only from your machine.
   idempotent — a transaction that already exists (same date, type, category,
   amount, and description) is skipped, so importing the same file twice never
   double-counts. Send `{"replace": true, ...}` to restore instead of merge.
+
+## Testing
+
+The suite uses pytest and runs against a throwaway database, so it never touches
+your ledger.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+It covers the exact-cent money layer, model validation, the idempotent
+migrations, and every API endpoint — including the integer-cent totals, category
+rename cascades, budget thresholds, and the idempotent export/import round trip.
 
 ## License
 

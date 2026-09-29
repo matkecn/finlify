@@ -896,19 +896,20 @@ class ImportIn(BaseModel):
     budgets: list[dict] = Field(default_factory=list)
 
 
-def _imported_cents(item: dict) -> int:
+def _imported_cents(item: dict, major_key: str = "amount", cents_key: str = "amount_cents") -> int:
     """Read an amount from an imported row, accepting major units or cents.
 
-    An ``amount`` key is read as major units. A row that carries only
-    ``amount_cents`` is read as an exact integer, never rescaled.
+    The ``major_key`` value is read as major units. A row that carries only
+    ``cents_key`` is read as an exact integer, never rescaled. Transactions use
+    the default ``amount`` keys; budgets pass ``limit`` and ``limit_cents``.
 
     Raises:
         MoneyError: If neither key holds a usable value.
     """
-    if item.get("amount") is not None:
-        return to_cents(item["amount"])
-    if item.get("amount_cents") is not None:
-        return to_cents(Decimal(str(item["amount_cents"])) / 100)
+    if item.get(major_key) is not None:
+        return to_cents(item[major_key])
+    if item.get(cents_key) is not None:
+        return to_cents(Decimal(str(item[cents_key])) / 100)
     raise MoneyError("Amount is missing")
 
 
@@ -992,7 +993,7 @@ def import_data(payload: ImportIn, db: Session = Depends(get_db)):
             stats["skipped"] += 1
             continue
         try:
-            limit = _imported_cents(item)
+            limit = _imported_cents(item, "limit", "limit_cents")
         except MoneyError:
             stats["skipped"] += 1
             continue
