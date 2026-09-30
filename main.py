@@ -11,7 +11,7 @@ from __future__ import annotations
 import calendar
 from datetime import date as dt_date
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -36,6 +36,7 @@ from models import (
     AuthSession,
     Budget,
     Category,
+    Goal,
     Transaction,
     User,
     normalize_color,
@@ -581,6 +582,45 @@ class BudgetIn(BaseModel):
         return v
 
 
+class GoalIn(BaseModel):
+    """Payload for creating or updating a savings goal.
+
+    The target is a strictly positive amount in major units. ``account`` is
+    optional: naming one measures progress against that account's balance, and
+    leaving it empty measures against the whole ledger.
+    """
+
+    name: str = Field(min_length=1, max_length=40)
+    target: Decimal = Field(gt=0)
+    account: str | None = Field(default=None, max_length=40)
+    deadline: dt_date | None = None
+    is_archived: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0)
+
+    @field_validator("target")
+    @classmethod
+    def _valid_target(cls, v: Decimal) -> Decimal:
+        """Reject a target that cannot be represented as positive cents."""
+        to_cents(v)
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, v: str) -> str:
+        """Reject a name that is only whitespace."""
+        if not " ".join(v.split()):
+            raise ValueError("Name cannot be empty")
+        return v
+
+    @field_validator("account")
+    @classmethod
+    def _valid_account(cls, v: str | None) -> str | None:
+        """Treat a blank account reference as absent rather than empty."""
+        if v is None:
+            return None
+        return " ".join(v.split())[:40] or None
+
+
 def optional_amount_cents(raw: str | None, field: str) -> int | None:
     """Parse an optional major-unit amount filter into cents.
 
@@ -676,6 +716,63 @@ def build_timeseries(db: Session, user_id: int, months: int) -> list[dict]:
             "net": from_cents(income - expenses),
             "count": bucket["count"],
         })
+    return out
+
+
+def build_net_worth(db: Session, user_id: int, months: int) -> list[dict]:
+    """Return net worth at each month end across the trailing ``months`` window.
+
+    The series is replayed from the transactions themselves rather than stored
+    as snapshots, so it is always correct and never needs backfilling. Accounts'
+    opening balances seed the running total; every classified transaction moves
+    it by its signed amount.
+
+    The final point is today rather than the close of the current month, so the
+    chart ends at the balance the person actually has: transactions dated in the
+    future are left out entirely, since they have not happened yet. Months with
+    no activity carry the previous month's value forward.
+    """
+    today = dt_date.today()
+    this_month = month_start(today)
+    first = add_months(this_month, -(months - 1))
+
+    opening = sum(
+        a.opening_balance_cents
+        for a in db.query(Account).filter(Account.user_id == user_id).all()
+    )
+
+    rows = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(
+        Transaction.date, Transaction.id
+    ).all()
+
+    running = opening
+    carry = opening
+    closes: dict[str, int] = {}
+    for t in rows:
+        if t.date > today:
+            continue
+        running += t.signed_cents
+        if t.date < first:
+            carry = running
+        else:
+            closes[t.date.strftime("%Y-%m")] = running
+
+    out = []
+    previous = carry
+    for offset in range(months):
+        cursor = add_months(first, offset)
+        key = cursor.strftime("%Y-%m")
+        value = running if cursor == this_month else closes.get(key, previous)
+        out.append({
+            "month": key,
+            "label": month_label(cursor),
+            "year": cursor.year,
+            "net_worth": from_cents(value),
+            "net_worth_cents": value,
+            "change": from_cents(value - previous),
+            "change_cents": value - previous,
+        })
+        previous = value
     return out
 
 
@@ -775,6 +872,64 @@ def build_budget_status(
             "state": "over" if ratio > 100 else "warn" if ratio >= 80 else "ok",
             "color": palette.get(budget.category) or colour_for(index),
         })
+    return status
+
+
+def build_goal_status(db: Session, user_id: int) -> list[dict]:
+    """Return each goal with the money measured against it and a state.
+
+    Progress is the live balance of the account the goal names, or of the whole
+    ledger when it names none. Nothing is cached, so a goal reacts to every new
+    transaction immediately.
+
+    ``state`` is ``reached`` once the target is met, ``overdue`` when a deadline
+    has passed without that, and ``saving`` otherwise.
+    """
+    goals = (
+        db.query(Goal)
+        .filter(Goal.user_id == user_id)
+        .order_by(Goal.sort_order, Goal.id)
+        .all()
+    )
+    if not goals:
+        return []
+
+    accounts = account_rows(db, user_id)
+    balances = {row["name"]: row["balance_cents"] for row in accounts}
+    net_worth = sum(row["balance_cents"] for row in accounts)
+    today = dt_date.today()
+
+    status = []
+    for index, goal in enumerate(goals):
+        held = balances.get(goal.account, 0) if goal.account else net_worth
+        target = goal.target_cents
+        ratio = (held / target * 100) if target else 0.0
+        days_left = (goal.deadline - today).days if goal.deadline else None
+
+        if ratio >= 100:
+            state = "reached"
+        elif days_left is not None and days_left < 0:
+            state = "overdue"
+        else:
+            state = "saving"
+
+        entry = goal.to_dict()
+        entry.update({
+            "saved": from_cents(held),
+            "saved_cents": held,
+            "remaining": from_cents(max(0, target - held)),
+            "remaining_cents": max(0, target - held),
+            "pct": round(ratio, 2),
+            "state": state,
+            "days_left": days_left,
+            "color": colour_for(index),
+            "needed_per_month": (
+                from_cents(round(max(0, target - held) / (-(-days_left // 30))))
+                if days_left is not None and days_left > 0
+                else None
+            ),
+        })
+        status.append(entry)
     return status
 
 
@@ -962,6 +1117,16 @@ def timeseries(
 ):
     """Return monthly income, expense, and net totals."""
     return {"months": months, "series": build_timeseries(db, user.id, months)}
+
+
+@app.get("/api/networth")
+def net_worth(
+    months: int = Query(6, ge=1, le=36),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Return net worth at each month end across the trailing window."""
+    return {"months": months, "series": build_net_worth(db, user.id, months)}
 
 
 @app.get("/api/breakdown")
@@ -1380,6 +1545,11 @@ def update_account(
                 Transaction.account == row.name,
             ).all():
                 t.account = new_name
+            for goal in db.query(Goal).filter(
+                Goal.user_id == user.id,
+                Goal.account == row.name,
+            ).all():
+                goal.account = new_name
             row.name = new_name
 
     if payload.kind is not None:
@@ -1430,6 +1600,16 @@ def delete_account(
             409,
             f"'{row.name}' is used by {used} transaction(s). "
             "Archive it instead to keep your history intact.",
+        )
+
+    tracked = db.query(Goal).filter(
+        Goal.user_id == user.id, Goal.account == row.name
+    ).count()
+    if tracked:
+        raise HTTPException(
+            409,
+            f"'{row.name}' is tracked by {tracked} goal(s). "
+            "Point those goals elsewhere, or delete them first.",
         )
 
     db.delete(row)
@@ -1509,6 +1689,136 @@ def delete_budget(
     return {"deleted": name}
 
 
+def goal_account(db: Session, user_id: int, account: str | None) -> str | None:
+    """Validate the account a goal measures against, treating blank as absent.
+
+    Raises:
+        HTTPException: With status 422 if the named account is not one the user
+            has, so a goal can never point at money that does not exist.
+    """
+    if not account:
+        return None
+    return assert_account_known(db, user_id, normalize_label(account))
+
+
+def goal_name_taken(
+    db: Session, user_id: int, name: str, exclude_id: int | None = None
+) -> bool:
+    """Whether this user already has a goal called ``name``, ignoring case."""
+    query = db.query(Goal).filter(
+        Goal.user_id == user_id,
+        func.lower(Goal.name) == name.lower(),
+    )
+    if exclude_id is not None:
+        query = query.filter(Goal.id != exclude_id)
+    return query.first() is not None
+
+
+def goal_entry(db: Session, user_id: int, goal_id: int) -> dict:
+    """Return one goal decorated with its live progress.
+
+    Raises:
+        HTTPException: With status 404 when the goal has just been removed.
+    """
+    for row in build_goal_status(db, user_id):
+        if row["id"] == goal_id:
+            return row
+    raise HTTPException(404, "Goal not found")
+
+
+@app.get("/api/goals")
+def list_goals(
+    include_archived: bool = Query(False),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's goals with live progress toward each target."""
+    rows = build_goal_status(db, user.id)
+    if not include_archived:
+        rows = [row for row in rows if not row["is_archived"]]
+    return {"goals": rows}
+
+
+@app.post("/api/goals", status_code=201)
+def create_goal(
+    payload: GoalIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a savings goal and return it with its progress.
+
+    Raises:
+        HTTPException: With status 409 if the user already has a goal with that
+            name, or 422 if the named account is unknown.
+    """
+    name = normalize_label(payload.name)
+    if goal_name_taken(db, user.id, name):
+        raise HTTPException(409, f"Goal '{name}' already exists")
+    account = goal_account(db, user.id, payload.account)
+    count = db.query(Goal).filter(Goal.user_id == user.id).count()
+    row = Goal(
+        name=name,
+        target_cents=to_cents(payload.target),
+        account=account,
+        deadline=payload.deadline,
+        is_archived=bool(payload.is_archived),
+        sort_order=count if payload.sort_order is None else payload.sort_order,
+        user_id=user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return goal_entry(db, user.id, row.id)
+
+
+@app.put("/api/goals/{goal_id}")
+def update_goal(
+    goal_id: int,
+    payload: GoalIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Replace a goal's fields and return it with its recalculated progress.
+
+    Raises:
+        HTTPException: With status 404 if the goal is not the user's, 409 if the
+            name is already taken, or 422 if the named account is unknown.
+    """
+    row = owned(Goal, db, user.id, goal_id, "Goal")
+    name = normalize_label(payload.name)
+    if goal_name_taken(db, user.id, name, exclude_id=row.id):
+        raise HTTPException(409, f"Goal '{name}' already exists")
+
+    row.name = name
+    row.target_cents = to_cents(payload.target)
+    row.account = goal_account(db, user.id, payload.account)
+    row.deadline = payload.deadline
+    if payload.is_archived is not None:
+        row.is_archived = payload.is_archived
+    if payload.sort_order is not None:
+        row.sort_order = payload.sort_order
+    db.commit()
+    db.refresh(row)
+    return goal_entry(db, user.id, row.id)
+
+
+@app.delete("/api/goals/{goal_id}")
+def delete_goal(
+    goal_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete one of the user's goals.
+
+    Raises:
+        HTTPException: With status 404 if this user has no such goal.
+    """
+    row = owned(Goal, db, user.id, goal_id, "Goal")
+    db.delete(row)
+    db.commit()
+    return {"deleted": row.name}
+
+
 @app.get("/api/export")
 def export_data(user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Return a complete, versioned JSON backup as a file download.
@@ -1539,6 +1849,10 @@ def export_data(user: User = Depends(current_user), db: Session = Depends(get_db
             a.to_dict() for a in db.query(Account).filter(
                 Account.user_id == user.id).all()
         ],
+        "goals": [
+            g.to_dict() for g in db.query(Goal).filter(
+                Goal.user_id == user.id).all()
+        ],
     }
     stamp = dt_date.today().isoformat()
     return JSONResponse(
@@ -1560,6 +1874,7 @@ class ImportIn(BaseModel):
     categories: list[dict] = Field(default_factory=list)
     budgets: list[dict] = Field(default_factory=list)
     accounts: list[dict] = Field(default_factory=list)
+    goals: list[dict] = Field(default_factory=list)
 
 
 def _imported_cents(item: dict, major_key: str = "amount", cents_key: str = "amount_cents") -> int:
@@ -1575,8 +1890,27 @@ def _imported_cents(item: dict, major_key: str = "amount", cents_key: str = "amo
     if item.get(major_key) is not None:
         return to_cents(item[major_key])
     if item.get(cents_key) is not None:
-        return to_cents(Decimal(str(item[cents_key])) / 100)
+        return to_cents(_imported_cents_value(item[cents_key]))
     raise MoneyError("Amount is missing")
+
+
+def _imported_cents_value(raw) -> Decimal:
+    """Convert a backup's exact cents field into major units.
+
+    An imported ``*_cents`` field is untrusted text as far as this app is
+    concerned, so a value that is not a number is reported as unusable money
+    rather than escaping as a decimal error.
+
+    Raises:
+        MoneyError: If the value is not a finite decimal number.
+    """
+    try:
+        value = Decimal(str(raw).strip()) / 100
+    except (InvalidOperation, ValueError, TypeError):
+        raise MoneyError("Amount must be a valid number")
+    if not value.is_finite():
+        raise MoneyError("Amount must be a finite number")
+    return value
 
 
 def _imported_signed_cents(
@@ -1595,7 +1929,7 @@ def _imported_signed_cents(
     if item.get(major_key) is not None:
         return to_signed_cents(item[major_key])
     if item.get(cents_key) is not None:
-        return to_signed_cents(Decimal(str(item[cents_key])) / 100)
+        return to_signed_cents(_imported_cents_value(item[cents_key]))
     return 0
 
 
@@ -1631,12 +1965,16 @@ def import_data(
         Counts of created accounts, categories, transactions, and budgets, plus
         the number of skipped entries.
     """
-    stats = {"categories": 0, "transactions": 0, "budgets": 0, "accounts": 0, "skipped": 0}
+    stats = {
+        "categories": 0, "transactions": 0, "budgets": 0,
+        "accounts": 0, "goals": 0, "skipped": 0,
+    }
 
     if payload.replace:
         db.query(Transaction).filter(Transaction.user_id == user.id).delete()
         db.query(Category).filter(Category.user_id == user.id).delete()
         db.query(Budget).filter(Budget.user_id == user.id).delete()
+        db.query(Goal).filter(Goal.user_id == user.id).delete()
         db.query(Account).filter(Account.user_id == user.id).delete()
         db.commit()
 
@@ -1760,6 +2098,37 @@ def import_data(
         ).first() is None:
             db.add(Budget(category=category, limit_cents=limit, user_id=user.id))
             stats["budgets"] += 1
+
+    for order, item in enumerate(payload.goals):
+        raw_name = clean_label(item.get("name", ""))
+        if not raw_name:
+            stats["skipped"] += 1
+            continue
+        name = normalize_label(raw_name)
+        if goal_name_taken(db, user.id, name):
+            stats["skipped"] += 1
+            continue
+        account = clean_label(item.get("account") or "") or None
+        if account is not None and account not in valid_accounts:
+            stats["skipped"] += 1
+            continue
+        try:
+            target = _imported_cents(item, "target", "target_cents")
+            raw_deadline = item.get("deadline")
+            deadline = dt_date.fromisoformat(str(raw_deadline)) if raw_deadline else None
+        except (MoneyError, TypeError, ValueError):
+            stats["skipped"] += 1
+            continue
+        db.add(Goal(
+            name=name,
+            target_cents=target,
+            account=account,
+            deadline=deadline,
+            is_archived=bool(item.get("is_archived", False)),
+            sort_order=int(item.get("sort_order", order)),
+            user_id=user.id,
+        ))
+        stats["goals"] += 1
 
     db.commit()
     return stats

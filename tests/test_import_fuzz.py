@@ -52,6 +52,7 @@ def test_valid_payload_imports_cleanly(client):
         "transactions": 40,
         "budgets": 2,
         "accounts": 0,
+        "goals": 0,
         "skipped": 0,
     }
 
@@ -153,3 +154,47 @@ def test_repeated_fuzz_imports_never_inflate_a_balanced_ledger(client):
     assert summary["income"] == float(income)
     assert summary["expenses"] == float(expenses)
     assert summary["transaction_count"] == 40
+
+
+def test_a_junk_cents_only_amount_is_skipped_not_fatal(client):
+    """A backup carrying only a malformed cents field must not crash the import.
+
+    Rows like this arrive from older exports and hand-edited files. When both an
+    ``amount`` and an ``amount_cents`` key are present the major-unit key wins, so
+    these rows deliberately carry only the cents key, which is the branch that
+    used to raise a raw decimal error out of the endpoint.
+    """
+    response = client.post(
+        "/api/import",
+        json={
+            "transactions": [
+                {
+                    "amount_cents": raw,
+                    "type": "expense",
+                    "category": "Groceries",
+                    "date": "2026-09-30",
+                }
+                for raw in ["abc", "", "1,50", "1e400", None, {"a": 1}, []]
+            ],
+            "budgets": [
+                {"category": "Groceries", "limit_cents": raw}
+                for raw in ["abc", "", "1,50"]
+            ],
+            "accounts": [
+                {"name": f"Broken{i}", "opening_balance_cents": raw}
+                for i, raw in enumerate(["abc", "", "1,50"])
+            ],
+            "goals": [
+                {"name": f"Goal{i}", "target_cents": raw}
+                for i, raw in enumerate(["abc", "", "1,50"])
+            ],
+        },
+    )
+    assert response.status_code == 200
+    stats = response.json()
+    assert stats["transactions"] == 0
+    assert stats["budgets"] == 0
+    assert stats["goals"] == 0
+    assert stats["accounts"] == 0
+    assert stats["skipped"] == 16
+    assert client.get("/api/goals").json()["goals"] == []

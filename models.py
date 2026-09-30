@@ -365,6 +365,55 @@ class Budget(Base):
         }
 
 
+class Goal(Base):
+    """A savings target measured against money that is already held.
+
+    A goal stores only its intent: a name, a target amount, and optionally an
+    account and a deadline. Progress is never stored, because it would go stale
+    the moment a transaction landed. It is measured against the live balance of
+    the linked account, or against the whole ledger when no account is named.
+    """
+
+    __tablename__ = "goals"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_goals_user_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    target_cents = Column(Integer, nullable=False)
+    account = Column(String, nullable=True)
+    deadline = Column(Date, nullable=True)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    user_id = Column(Integer, nullable=False, default=ADMIN_USER_ID, index=True)
+
+    @validates("name")
+    def _clean_name(self, _key, value: str) -> str:
+        """Normalise a goal name, preserving deliberate capitalisation."""
+        return normalize_label(value)
+
+    @validates("account")
+    def _clean_account(self, _key, value: str | None) -> str | None:
+        """Normalise the optional account reference, treating blank as absent."""
+        if value is None or not str(value).strip():
+            return None
+        return normalize_label(value)
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serialisable representation, including exact cents."""
+        from money import from_cents
+
+        return {
+            "id": self.id,
+            "name": self.name,
+            "target": from_cents(self.target_cents),
+            "target_cents": self.target_cents,
+            "account": self.account,
+            "deadline": self.deadline.isoformat() if self.deadline else None,
+            "is_archived": bool(self.is_archived),
+            "sort_order": self.sort_order,
+        }
+
+
 class AppMeta(Base):
     """A key/value store for schema versioning and other bookkeeping."""
 

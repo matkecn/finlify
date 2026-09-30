@@ -27,6 +27,7 @@ def test_export_shape_and_version(client):
         "categories",
         "budgets",
         "accounts",
+        "goals",
     }
     assert body["owner"] == ADMIN_USERNAME
 
@@ -280,3 +281,80 @@ def test_import_does_not_echo_hostile_colour_on_export(client):
     gold = next(c for c in exported["categories"] if c["name"] == "Gold")
     assert "<script>" not in gold["color"]
     assert gold["color"] in CATEGORY_PALETTE
+
+
+def test_export_carries_goals(client):
+    client.post("/api/goals", json={"name": "Holiday", "target": "1500.00", "deadline": "2027-06-30"})
+    goals = client.get("/api/export").json()["goals"]
+    assert len(goals) == 1
+    assert goals[0]["name"] == "Holiday"
+    assert goals[0]["target_cents"] == 150000
+    assert goals[0]["deadline"] == "2027-06-30"
+
+
+def test_import_adds_goals_once(client):
+    payload = {"goals": [{"name": "Holiday", "target_cents": 150000}]}
+    first = client.post("/api/import", json=payload).json()
+    assert first["goals"] == 1
+    assert client.post("/api/import", json=payload).json()["goals"] == 0
+    assert client.post("/api/import", json=payload).json()["skipped"] == 1
+
+
+def test_import_accepts_a_major_units_goal_target(client):
+    stats = client.post("/api/import", json={"goals": [{"name": "Trip", "target": "99.99"}]}).json()
+    assert stats["goals"] == 1
+    assert client.get("/api/goals").json()["goals"][0]["target_cents"] == 9999
+
+
+def test_import_skips_a_goal_for_an_unknown_account(client):
+    payload = {"goals": [{"name": "Ghost", "target_cents": 100, "account": "Nowhere"}]}
+    stats = client.post("/api/import", json=payload).json()
+    assert stats["goals"] == 0
+    assert stats["skipped"] == 1
+
+
+def test_import_skips_a_goal_with_an_unusable_target(client):
+    payload = {"goals": [
+        {"name": "No target"},
+        {"name": "Bad target", "target_cents": "not money"},
+        {"name": "Negative", "target_cents": -5},
+        {"name": "Zero", "target_cents": 0},
+    ]}
+    assert client.post("/api/import", json=payload).json()["skipped"] == 4
+
+
+def test_import_skips_a_goal_with_an_unusable_deadline(client):
+    payload = {"goals": [{"name": "Bad date", "target_cents": 100, "deadline": "next tuesday"}]}
+    assert client.post("/api/import", json=payload).json()["goals"] == 0
+
+
+def test_import_skips_a_blank_goal_name(client):
+    payload = {"goals": [{"name": "  ", "target_cents": 100}]}
+    assert client.post("/api/import", json=payload).json()["skipped"] == 1
+
+
+def test_replace_import_restores_goals(client):
+    client.post("/api/goals", json={"name": "Kept", "target": "50.00"})
+    backup = client.get("/api/export").json()
+    client.post("/api/goals", json={"name": "Added later", "target": "70.00"})
+    stats = client.post("/api/import", json={**backup, "replace": True}).json()
+    assert stats["goals"] == 1
+    names = [g["name"] for g in client.get("/api/goals").json()["goals"]]
+    assert names == ["Kept"]
+
+
+def test_goal_survives_an_export_import_round_trip(client):
+    client.post("/api/accounts", json={"name": "Savings", "opening_balance": "200.00"})
+    client.post("/api/goals", json={
+        "name": "Car",
+        "target": "1000.00",
+        "account": "Savings",
+        "deadline": "2027-01-31",
+    })
+    backup = client.get("/api/export").json()
+    client.post("/api/import", json={**backup, "replace": True})
+    goal = client.get("/api/goals").json()["goals"][0]
+    assert goal["name"] == "Car"
+    assert goal["account"] == "Savings"
+    assert goal["deadline"] == "2027-01-31"
+    assert goal["saved_cents"] == 20000

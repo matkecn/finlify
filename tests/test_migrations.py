@@ -81,6 +81,18 @@ def _index_names(engine, table):
     return {index["name"] for index in inspect(engine).get_indexes(table)}
 
 
+def _table_names(engine):
+    return set(inspect(engine).get_table_names())
+
+
+def _unique_constraint_names(engine, table):
+    return {
+        constraint["name"]
+        for constraint in inspect(engine).get_unique_constraints(table)
+        if constraint["name"]
+    }
+
+
 def test_migrates_float_money_columns_to_integer_cents(tmp_path):
     engine = _legacy_engine(tmp_path / "legacy.db")
 
@@ -140,6 +152,31 @@ def test_user_date_index_migration_is_idempotent(tmp_path):
     second = migrations.run(engine)
 
     assert second["user_date_index"] is False
+
+
+def test_upgrading_gains_the_goals_table(tmp_path):
+    """An existing database picks up savings goals on the next boot.
+
+    ``goals`` is a brand new table rather than a changed column, so ``create_all``
+    adds it to an upgraded database without a bespoke reshaping step. This test
+    pins that down, because an existing user's goals table going missing would
+    silently drop their saved goals.
+    """
+    engine = _v2_engine(tmp_path / "v2.db")
+    assert "goals" not in _table_names(engine)
+
+    migrations.run(engine)
+
+    assert "goals" in _table_names(engine)
+    assert "uq_goals_user_name" in _unique_constraint_names(engine, "goals")
+
+
+def test_fresh_database_has_the_goals_table(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}", future=True)
+
+    migrations.run(engine)
+
+    assert "goals" in _table_names(engine)
 
 
 def test_fresh_database_has_the_user_date_index(tmp_path):

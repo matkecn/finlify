@@ -19,6 +19,21 @@ class MoneyError(ValueError):
     """Raised when a value cannot be interpreted as a usable monetary amount."""
 
 
+def _quantized_cents(value: Decimal) -> int:
+    """Round a parsed amount to whole cents.
+
+    Raises:
+        MoneyError: If the amount is so large it cannot be expressed in cents.
+            ``Decimal`` signals this with an ``InvalidOperation`` rather than
+            a plain overflow, which would otherwise escape as an unexpected
+            exception type for a value that is simply unusable.
+    """
+    try:
+        return int(value.quantize(CENTS, rounding=ROUND_HALF_UP) * 100)
+    except InvalidOperation:
+        raise MoneyError("Amount is unrealistically large")
+
+
 def to_cents(value) -> int:
     """Convert a user-supplied amount into integer cents using half-up rounding.
 
@@ -49,7 +64,7 @@ def to_cents(value) -> int:
     if not dec.is_finite():
         raise MoneyError("Amount must be a finite number")
 
-    cents = int(dec.quantize(CENTS, rounding=ROUND_HALF_UP) * 100)
+    cents = _quantized_cents(dec)
 
     if cents <= 0:
         raise MoneyError("Amount must be greater than zero")
@@ -81,7 +96,7 @@ def to_signed_cents(value) -> int:
     if not dec.is_finite():
         raise MoneyError("Amount must be a finite number")
 
-    cents = int(dec.quantize(CENTS, rounding=ROUND_HALF_UP) * 100)
+    cents = _quantized_cents(dec)
     if abs(cents) > MAX_CENTS:
         raise MoneyError("Amount is unrealistically large")
     return cents
