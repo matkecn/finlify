@@ -27,8 +27,8 @@ def test_default_main_account_is_seeded(client):
 
 
 def test_new_database_exposes_main_account(client):
-    body = client.get("/api/health").json()
-    assert body["accounts"] == 1
+    body = client.get("/api/accounts").json()
+    assert [a["name"] for a in body["accounts"]] == ["Main"]
 
 
 def test_create_account_returns_balance_and_kind(client):

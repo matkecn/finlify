@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from conftest import ADMIN_USERNAME
+
 
 def add(client, amount, kind="expense", category="Groceries", date="2026-09-30"):
     return client.post(
@@ -19,11 +21,13 @@ def test_export_shape_and_version(client):
         "app",
         "export_version",
         "exported_at",
+        "owner",
         "transactions",
         "categories",
         "budgets",
         "accounts",
     }
+    assert body["owner"] == ADMIN_USERNAME
 
 
 def test_export_carries_exact_cents(client):

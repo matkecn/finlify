@@ -164,6 +164,12 @@ def test_second_run_is_a_noop(tmp_path):
         "transactions_to_cents": False,
         "budgets_to_cents": False,
         "account_column": False,
+        "dropped_staging": [],
+        "user_columns": 0,
+        "scoped_budgets": False,
+        "scoped_categories": False,
+        "scoped_accounts": False,
+        "claimed": {},
         "categories": 0,
         "accounts": 0,
     }
@@ -213,3 +219,161 @@ def test_seeding_never_duplicates_existing_categories(tmp_path):
     with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM categories")).scalar_one()
     assert total == 19
+
+
+def test_migration_creates_a_claimable_administrator(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+
+    report = migrations.run(engine)
+
+    assert report["claimed"] == {
+        "transactions": 5,
+        "categories": 19,
+        "budgets": 3,
+        "accounts": 1,
+    }
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id, username, password_hash, is_admin FROM users")
+        ).one()
+    assert row[0] == migrations.ADMIN_USER_ID
+    assert row[1] == migrations.ADMIN_USERNAME
+    assert row[2] is None
+    assert row[3] == 1
+
+
+def test_migration_claims_every_legacy_row_for_the_owner(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+
+    migrations.run(engine)
+
+    with engine.connect() as conn:
+        owners = {
+            table: {
+                r[0]
+                for r in conn.execute(
+                    text(f"SELECT DISTINCT user_id FROM {table}")
+                ).all()
+            }
+            for table in ("transactions", "budgets", "categories", "accounts")
+        }
+        counts = dict(
+            conn.execute(
+                text(
+                    "SELECT 'transactions', COUNT(*) FROM transactions "
+                    "UNION ALL SELECT 'budgets', COUNT(*) FROM budgets "
+                    "UNION ALL SELECT 'categories', COUNT(*) FROM categories "
+                    "UNION ALL SELECT 'accounts', COUNT(*) FROM accounts"
+                )
+            ).all()
+        )
+
+    assert owners == {
+        "transactions": {1},
+        "budgets": {1},
+        "categories": {1},
+        "accounts": {1},
+    }
+    assert counts == {
+        "transactions": 5,
+        "budgets": 3,
+        "categories": 19,
+        "accounts": 1,
+    }
+
+
+def test_migration_adds_a_user_column_to_every_owned_table(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+
+    migrations.run(engine)
+
+    for table in ("transactions", "categories", "budgets", "accounts"):
+        assert "user_id" in _column_names(engine, table)
+
+
+def test_migration_leaves_a_claimed_owner_untouched(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+    migrations.run(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET password_hash = 'already-set', username = 'owner'")
+        )
+
+    report = migrations.run(engine)
+
+    assert report["claimed"] == {}
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT username, password_hash FROM users WHERE id = 1")
+        ).one()
+    assert row == ("owner", "already-set")
+
+
+def _add_second_user(conn):
+    conn.execute(
+        text(
+            "INSERT INTO users (id, username, display_name, currency, theme, "
+            "is_admin, created_at) VALUES "
+            "(2, 'sam', 'Sam', 'EUR', 'dark', 0, '2026-01-01 00:00:00')"
+        )
+    )
+
+
+def test_migration_rebuilds_uniques_per_user(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+    migrations.run(engine)
+
+    with engine.begin() as conn:
+        _add_second_user(conn)
+        conn.execute(
+            text(
+                "INSERT INTO categories (name, kind, color, is_archived, sort_order, user_id) "
+                "VALUES ('Housing', 'expense', '#5eead4', 0, 0, 2)"
+            )
+        )
+
+    with engine.connect() as conn:
+        owners = dict(
+            conn.execute(
+                text(
+                    "SELECT user_id, COUNT(*) FROM categories WHERE name = 'Housing' "
+                    "GROUP BY user_id"
+                )
+            ).all()
+        )
+
+    assert owners == {1: 1, 2: 1}
+
+
+def test_migration_drops_stale_staging_tables(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+    migrations.run(engine)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE budgets__new (id INTEGER PRIMARY KEY)"))
+        conn.execute(text("INSERT INTO budgets__new (id) VALUES (99)"))
+
+    report = migrations.run(engine)
+
+    assert "budgets__new" in report["dropped_staging"]
+    assert "budgets__new" not in set(inspect(engine).get_table_names())
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM budgets")).scalar_one() == 3
+
+
+def test_user_ledgers_do_not_collide_on_shared_names(tmp_path):
+    engine = _legacy_engine(tmp_path / "legacy.db")
+    migrations.run(engine)
+    with engine.begin() as conn:
+        _add_second_user(conn)
+        conn.execute(
+            text(
+                "INSERT INTO budgets (category, limit_cents, user_id) "
+                "VALUES ('Coffee', 999, 2)"
+            )
+        )
+
+    with engine.connect() as conn:
+        rows = dict(
+            conn.execute(text("SELECT category, limit_cents FROM budgets")).all()
+        )
+    assert rows["Coffee"] == 999

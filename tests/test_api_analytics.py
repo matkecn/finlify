@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import migrations
 from money import from_cents
 from models import Transaction
 
@@ -223,10 +224,13 @@ def test_dashboard_alias_matches_summary(client):
     assert legacy["transaction_count"] == summary["transaction_count"]
 
 
-def test_health_counts_rows(client):
+def test_health_reports_state_without_leaking_rows(client):
     add(client, "10.00", category="Groceries")
     body = client.get("/api/health").json()
     assert body["status"] == "ok"
-    assert body["transactions"] == 1
-    assert body["categories"] == 19
-    assert body["budgets"] == 0
+    assert body["database"] == "finlify.db"
+    assert body["schema"] == migrations.SCHEMA_VERSION
+    assert body["users"] == 1
+    assert body["needs_setup"] is False
+    assert "transactions" not in body
+    assert "categories" not in body
