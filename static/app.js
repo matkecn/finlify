@@ -642,6 +642,7 @@
       var li = document.createElement("li");
       li.className = "legend-item";
       li.dataset.category = c.category;
+      li.style.setProperty("--accent", c.color);
       li.innerHTML =
         '<span class="legend-dot" style="background:' + c.color + '"></span>' +
         '<span class="legend-name"></span>' +

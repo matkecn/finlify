@@ -1602,3 +1602,121 @@ main { counter-reset: section; }
   border-top: 1px solid var(--line);
   opacity: 0.9;
 }
+
+/* ── C3 · Charts & panels ─────────────────────────────────────── */
+
+.chart-lg { height: 320px; }
+.chart-donut { height: 216px; }
+.chart-md { height: 232px; }
+
+/* Frosted tooltips that read over any chart. */
+.tooltip {
+  padding: 9px 12px;
+  font-size: 10.5px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--line-hi);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-dim);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  line-height: 1.85;
+}
+.tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  margin-top: -4px;
+  background: var(--surface);
+  border-right: 1px solid var(--line-hi);
+  border-bottom: 1px solid var(--line-hi);
+  transform: rotate(45deg);
+}
+
+/* Cash flow toggle chips become tinted swatch pills. */
+.chip {
+  gap: 7px;
+  padding: 4px 11px 4px 6px;
+  border-radius: 999px;
+  background: var(--panel);
+  transition: background 0.18s, border-color 0.18s, opacity 0.18s, box-shadow 0.18s;
+}
+.chip.is-active { box-shadow: 0 0 0 1px var(--accent-dim); }
+.swatch { width: 8px; height: 8px; border-radius: 999px; }
+
+/* Category legend rows with hover lift and a share accent. */
+.legend { gap: 2px; margin-top: 12px; }
+.legend-item {
+  position: relative;
+  grid-template-columns: 10px 1fr auto auto;
+  gap: 11px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+}
+.legend-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.legend-item:hover::before,
+.legend-item.is-active::before { opacity: 0.85; }
+.legend-item.is-active { background: var(--panel-hi); }
+.legend-dot { width: 8px; height: 8px; border-radius: 3px; }
+.legend-value { font-size: 12.5px; }
+.legend-pct { font-size: 10.5px; min-width: 42px; }
+
+/* Daily pulse summary figures. */
+.pulse-stats { gap: 16px; margin-top: 16px; padding-top: 15px; }
+.mini-value { font-size: 14px; color: var(--text-2); }
+
+/* Budget tracks gain depth and a gradient fill. */
+.budget-list { gap: 15px; }
+.budget-track {
+  height: 6px;
+  background: linear-gradient(180deg, var(--line), rgba(255, 255, 255, 0.035));
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+.budget-fill {
+  background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 55%, white));
+  box-shadow: 0 0 10px -2px var(--accent-dim);
+}
+.budget-item.is-warn .budget-fill { background: linear-gradient(90deg, var(--warn), color-mix(in oklab, var(--warn) 55%, white)); }
+.budget-item.is-over .budget-fill { background: var(--neg); }
+.budget-nums { font-size: 10.5px; }
+.budget-name { font-size: 12.5px; }
+
+/* Accounts: richer cards with a tinted kind chip. */
+.account-list { gap: 12px; }
+.account-card {
+  padding: 15px 15px 14px 17px;
+  border-radius: var(--r);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.22s var(--ease), background 0.22s, border-color 0.22s, box-shadow 0.22s var(--ease);
+}
+.account-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.account-card::before { width: 3px; border-radius: 0 3px 3px 0; }
+.account-balance { font-size: 20px; letter-spacing: -0.025em; }
+.account-kind {
+  font-size: 8.5px;
+  color: var(--text-3);
+  border-color: var(--line);
+  background: var(--panel-hi);
+}
+.account-meta { font-size: 10.5px; }
+
+/* About and category surfaces align with the new radius. */
+.about-card, .cat-item, .person { border-radius: var(--r-sm); }
+.about-card { box-shadow: var(--shadow-sm); }
