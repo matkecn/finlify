@@ -81,6 +81,270 @@
   }
 
   /**
+   * Compute the initials shown inside the header avatar.
+   *
+   * @param {Object} user The signed-in user record.
+   * @returns {string} One or two letters derived from the display name.
+   */
+  function avatarInitials(user) {
+    var name = (user.display_name || user.username || "?") .trim();
+    var parts = name.split(/\s+/).filter(Boolean);
+    var first = (parts[0] || "?").charAt(0);
+    var last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : "";
+    return (first + last).toUpperCase();
+  }
+
+  /**
+   * Mirror a user's identity into the header chip and the account popover.
+   *
+   * @param {Object} user The signed-in user record.
+   */
+  function renderUser(user) {
+    var label = user.display_name || user.username || "Account";
+    var initials = avatarInitials(user);
+    $("userAvatar").textContent = initials;
+    $("userAvatarLarge").textContent = initials;
+    $("userName").textContent = label;
+    $("userPopName").textContent = label;
+    $("userPopUsername").textContent = "@" + user.username;
+  }
+
+  /**
+   * Open the account popover beneath the header chip.
+   */
+  function openUserPop() {
+    $("userPop").hidden = false;
+    $("userChip").setAttribute("aria-expanded", "true");
+  }
+
+  /**
+   * Close the account popover.
+   */
+  function closeUserPop() {
+    $("userPop").hidden = true;
+    $("userChip").setAttribute("aria-expanded", "false");
+  }
+
+  /**
+   * Toggle the account popover.
+   */
+  function toggleUserPop() {
+    if ($("userPop").hidden) openUserPop();
+    else closeUserPop();
+  }
+
+  /**
+   * Open the settings sheet and fill it from the signed-in user.
+   */
+  function openSettings() {
+    closeUserPop();
+    var user = state.user;
+    $("settingsName").value = user.display_name || "";
+    $("settingsUsername").value = user.username;
+    auth.fillCurrencies("settingsCurrency");
+    auth.markTheme(user.theme);
+    $("passwordError").hidden = true;
+    $("adminBlock").hidden = !user.is_admin;
+    if (user.is_admin) loadPeople();
+    $("settingsBackdrop").hidden = false;
+  }
+
+  /**
+   * Close the settings sheet.
+   */
+  function closeSettings() {
+    $("settingsBackdrop").hidden = true;
+  }
+
+  /**
+   * Save the profile and preference fields.
+   */
+  function savePreferences() {
+    var user = state.user;
+    var theme = "dark";
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#settingsThemes .seg"),
+      function (seg) {
+        if (seg.classList.contains("is-active")) theme = seg.dataset.themeChoice;
+      }
+    );
+    auth.saveSettings({
+      display_name: $("settingsName").value.trim() || null,
+      currency: $("settingsCurrency").value || user.currency,
+      theme: theme,
+    })
+      .then(function () {
+        toast("Preferences saved", "success");
+        renderUser(state.user);
+      })
+      .catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
+   * Change the signed-in user's password.
+   */
+  function changePassword() {
+    var error = $("passwordError");
+    error.hidden = true;
+    api("/api/settings/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_password: $("passwordCurrent").value,
+        new_password: $("passwordNext").value,
+      }),
+    })
+      .then(function () {
+        $("passwordForm").reset();
+        toast("Password changed", "success");
+      })
+      .catch(function (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+      });
+  }
+
+  /**
+   * Load every local account for the administrator's people list.
+   */
+  function loadPeople() {
+    api("/api/users")
+      .then(function (payload) { renderPeople(payload.users || []); })
+      .catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
+   * Render the people list with reset and delete controls.
+   *
+   * @param {Array} users Every local account, self included.
+   */
+  function renderPeople(users) {
+    var list = $("peopleList");
+    list.innerHTML = "";
+    users.forEach(function (u) {
+      var li = document.createElement("li");
+      li.className = "person" + (u.id === state.user.id ? " is-self" : "");
+      li.dataset.userId = u.id;
+
+      var id = document.createElement("div");
+      id.className = "person-id";
+      var name = document.createElement("span");
+      name.className = "person-name";
+      name.textContent = u.display_name || u.username;
+      var sub = document.createElement("span");
+      sub.className = "person-sub";
+      sub.textContent = "@" + u.username;
+      id.appendChild(name);
+      id.appendChild(sub);
+      li.appendChild(id);
+
+      if (u.is_admin) {
+        var badge = document.createElement("span");
+        badge.className = "person-badge";
+        badge.textContent = "owner";
+        li.appendChild(badge);
+      }
+
+      var actions = document.createElement("div");
+      actions.className = "person-actions";
+      if (u.id !== state.user.id) {
+        var reset = document.createElement("button");
+        reset.className = "btn btn-mini";
+        reset.type = "button";
+        reset.textContent = "Reset password";
+        reset.addEventListener("click", function () {
+          var input = li.querySelector(".person-password input");
+          if (input) {
+            var row = li.querySelector(".person-password");
+            row.hidden = !row.hidden;
+            if (!row.hidden) input.focus();
+          }
+        });
+        actions.appendChild(reset);
+
+        var del = document.createElement("button");
+        del.className = "btn btn-mini btn-danger";
+        del.type = "button";
+        del.textContent = "Delete";
+        del.addEventListener("click", function () {
+          var keep = window.confirm(
+            "Delete the account \"" + (u.display_name || u.username) +
+            "\" and every transaction, category, budget, and account it owns?"
+          );
+          if (!keep) return;
+          api("/api/users/" + u.id, { method: "DELETE" })
+            .then(function () {
+              toast("Account deleted", "success");
+              loadPeople();
+            })
+            .catch(function (e) { toast(e.message, "error"); });
+        });
+        actions.appendChild(del);
+
+        var row = document.createElement("div");
+        row.className = "person-password";
+        row.hidden = true;
+        var input = document.createElement("input");
+        input.type = "password";
+        input.placeholder = "New password, 8+ characters";
+        input.autocomplete = "new-password";
+        input.minLength = 8;
+        var save = document.createElement("button");
+        save.className = "btn btn-mini btn-primary";
+        save.type = "button";
+        save.textContent = "Save";
+        save.addEventListener("click", function () {
+          if (!input.value || input.value.length < 8) {
+            toast("New passwords need at least 8 characters", "error");
+            return;
+          }
+          api("/api/users/" + u.id + "/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: input.value }),
+          })
+            .then(function () {
+              toast("Password updated for " + (u.display_name || u.username), "success");
+              row.hidden = true;
+              input.value = "";
+            })
+            .catch(function (e) { toast(e.message, "error"); });
+        });
+        row.appendChild(input);
+        row.appendChild(save);
+        li.appendChild(row);
+      }
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+  }
+
+  /**
+   * Create a new local account from the people form.
+   */
+  function createPerson() {
+    var error = $("peopleError");
+    error.hidden = true;
+    api("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: $("personName").value.trim(),
+        password: $("personPassword").value,
+      }),
+    })
+      .then(function () {
+        $("peopleForm").reset();
+        toast("Account created", "success");
+        loadPeople();
+      })
+      .catch(function (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+      });
+  }
+
+  /**
    * Update the connection status pill in the header.
    *
    * @param {string} kind Optional state class such as "is-live" or "is-error".
@@ -1338,6 +1602,7 @@
 
     initCharts();
     auth.onThemeChanged(repaintCharts);
+    auth.onCurrencyChanged(repaintCharts);
     bindFilters();
     bindRanges();
     startClock();
@@ -1357,12 +1622,42 @@
     $("importBtn").addEventListener("click", function () { $("importFile").click(); });
     $("importFile").addEventListener("change", importBackup);
 
+    $("userChip").addEventListener("click", toggleUserPop);
+    $("signOutBtn").addEventListener("click", function () {
+      closeUserPop();
+      auth.signOut().catch(function (e) { toast(e.message, "error"); });
+    });
+    $("openSettings").addEventListener("click", openSettings);
+    $("closeSettings").addEventListener("click", closeSettings);
+    $("settingsBackdrop").addEventListener("click", function (e) {
+      if (e.target === $("settingsBackdrop")) closeSettings();
+    });
+    $("savePreferences").addEventListener("click", savePreferences);
+    $("passwordForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      changePassword();
+    });
+    $("peopleForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      createPerson();
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll(".type-toggle .seg"), function (seg) {
       seg.addEventListener("click", function () { setModalType(seg.dataset.type); });
     });
 
+    document.addEventListener("click", function (e) {
+      if (!$("userPop").hidden &&
+          !e.target.closest(".user-menu")) {
+        closeUserPop();
+      }
+    });
+
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !$("modalBackdrop").hidden) closeModal();
+      if (e.key !== "Escape") return;
+      if (!$("settingsBackdrop").hidden) closeSettings();
+      else if (!$("modalBackdrop").hidden) closeModal();
+      else if (!$("userPop").hidden) closeUserPop();
     });
 
     loadAll();
@@ -1378,6 +1673,7 @@
    */
   function start(user) {
     state.user = user;
+    renderUser(user);
     init();
   }
 

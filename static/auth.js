@@ -34,6 +34,7 @@
 
   var sessionLost = null;
   var themeListeners = [];
+  var currencyListeners = [];
   var $ = function (id) { return document.getElementById(id); };
 
   /**
@@ -86,9 +87,14 @@
    * @param {string} code An ISO 4217 currency code.
    */
   function applyCurrency(code) {
+    var before = FX.currencyCode();
     if (!FX.setCurrency(code)) return;
+    var changed = FX.currencyCode() !== before;
     write(CURRENCY_KEY, FX.currencyCode());
     if (state.user) state.user.currency = FX.currencyCode();
+    if (changed) {
+      currencyListeners.forEach(function (fn) { fn(FX.currencyCode()); });
+    }
   }
 
   /**
@@ -392,6 +398,7 @@
     cachedName: function () { return read(NAME_KEY); },
     onSessionLost: function (fn) { sessionLost = fn; },
     onThemeChanged: function (fn) { themeListeners.push(fn); },
+    onCurrencyChanged: function (fn) { currencyListeners.push(fn); },
     user: function () { return state.user; },
   };
 
