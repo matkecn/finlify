@@ -522,6 +522,226 @@
   };
 
   /**
+   * Round a value down to the next visually tidy axis minimum.
+   *
+   * The counterpart to {@link niceCeil}, for a series that dips below zero.
+   *
+   * @param {number} value The raw minimum to round.
+   * @returns {number} A rounded minimum suitable for a chart axis.
+   */
+  function niceFloor(value) {
+    if (value >= 0) return 0;
+    var exp = Math.floor(Math.log10(-value));
+    var base = Math.pow(10, exp);
+    var norm = -value / base;
+    var step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+    return -step * base;
+  }
+
+  /**
+   * Single series line chart for a balance that can go either side of zero.
+   *
+   * Used for net worth, where the scale has to hold an overdrawn account as
+   * honestly as a large positive balance: the domain always includes zero, so a
+   * small move on a large balance reads as small instead of being magnified into
+   * a dramatic-looking spike. A zero rule is drawn only when the series actually
+   * crosses it.
+   *
+   * @constructor
+   * @extends BaseChart
+   * @param {HTMLCanvasElement} canvas The canvas to render into.
+   * @param {Object} [opts] Options, including `color`, `emptyText`, and `onHover`.
+   */
+  function LineChart(canvas, opts) {
+    BaseChart.call(this, canvas, opts);
+  }
+  LineChart.prototype = Object.create(BaseChart.prototype);
+  LineChart.prototype.constructor = LineChart;
+
+  LineChart.prototype.PAD = { l: 54, r: 14, t: 16, b: 26 };
+
+  /**
+   * Work out the value domain and the x/y projections for the current data.
+   *
+   * Exposed as a method rather than an inner closure because the tooltip needs
+   * to position itself against the very same point the chart drew, and two
+   * copies of this arithmetic would eventually disagree.
+   *
+   * @returns {{lo: number, hi: number, xFor: function(number): number, yFor: function(number): number}}
+   *   The domain plus the projection helpers.
+   */
+  LineChart.prototype.scale = function () {
+    var pad = this.PAD;
+    var plotW = Math.max(10, this.w - pad.l - pad.r);
+    var plotH = Math.max(10, this.h - pad.t - pad.b);
+    var data = this.data;
+
+    var min = 0, max = 0;
+    data.forEach(function (d) {
+      var v = Number(d.value) || 0;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    });
+    var lo = niceFloor(min < 0 ? min * 1.12 : 0);
+    var hi = niceCeil(max > 0 ? max * 1.12 : 0);
+    if (hi === lo) hi = lo + 1;
+
+    return {
+      lo: lo,
+      hi: hi,
+      xFor: function (i) {
+        return pad.l + (data.length === 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+      },
+      yFor: function (v) {
+        return pad.t + plotH - ((v - lo) / (hi - lo)) * plotH;
+      }
+    };
+  };
+
+  /** Render the value series onto the canvas. */
+  LineChart.prototype.draw = function () {
+    var ctx = this.ctx, w = this.w, h = this.h, data = this.data;
+    ctx.clearRect(0, 0, w, h);
+    if (!data.length) return this.drawEmpty();
+
+    var pad = this.PAD;
+    var plotW = Math.max(10, w - pad.l - pad.r);
+    var plotH = Math.max(10, h - pad.t - pad.b);
+    var color = FX.safeColor(this.opts.color, "#5eead4");
+    var scale = this.scale();
+    var lo = scale.lo, hi = scale.hi;
+
+    ctx.font = "500 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (var g = 0; g <= 4; g++) {
+      var value = hi - ((hi - lo) / 4) * g;
+      var gy = pad.t + (plotH / 4) * g;
+      ctx.beginPath();
+      ctx.strokeStyle = cssVar("--chart-grid", "rgba(255,255,255,0.06)");
+      ctx.lineWidth = 1;
+      ctx.moveTo(pad.l, gy + 0.5);
+      ctx.lineTo(pad.l + plotW, gy + 0.5);
+      ctx.stroke();
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.32)");
+      ctx.fillText(FX.compact(value), pad.l - 10, gy);
+    }
+
+    // Zero sits inside the domain whenever the series crosses it, and that
+    // crossing is the thing worth marking.
+    if (lo < 0 && hi > 0) {
+      var zeroY = Math.round(scale.yFor(0)) + 0.5;
+      ctx.beginPath();
+      ctx.strokeStyle = cssVar("--chart-zero", "rgba(255,255,255,0.18)");
+      ctx.lineWidth = 1;
+      ctx.moveTo(pad.l, zeroY);
+      ctx.lineTo(pad.l + plotW, zeroY);
+      ctx.stroke();
+    }
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    var stepLabel = Math.max(1, Math.ceil(data.length / 7));
+    data.forEach(function (d, i) {
+      if (i % stepLabel !== 0 && i !== data.length - 1) return;
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.3)");
+      ctx.fillText(d.label, scale.xFor(i), pad.t + plotH + 8);
+    });
+
+    var pts = data.map(function (d, i) {
+      return { x: scale.xFor(i), y: scale.yFor(Number(d.value) || 0) };
+    });
+    var reveal = this.progress;
+    var shown = pts.slice(0, Math.max(1, Math.ceil(pts.length * reveal)));
+
+    if (shown.length > 1) {
+      ctx.beginPath();
+      smoothPath(ctx, shown);
+      var last = shown[shown.length - 1];
+      var fill = ctx.createLinearGradient(0, pad.t, 0, pad.t + plotH);
+      fill.addColorStop(0, hexToRgba(color, 0.22));
+      fill.addColorStop(1, hexToRgba(color, 0.01));
+      ctx.save();
+      ctx.lineTo(last.x, pad.t + plotH);
+      ctx.lineTo(shown[0].x, pad.t + plotH);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      smoothPath(ctx, shown);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.8;
+      ctx.lineJoin = "round";
+      ctx.shadowColor = hexToRgba(color, 0.85);
+      ctx.shadowBlur = 6;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // The endpoint always gets a dot, so a single point series reads as a
+    // known value rather than as an empty chart.
+    this.drawDot(pts[shown.length - 1], color, 3.2, false);
+
+    if (this.hoverIndex >= 0 && this.hoverIndex < data.length && reveal > 0.98) {
+      this.drawDot(pts[this.hoverIndex], color, 4.5, true);
+      var hx = Math.round(scale.xFor(this.hoverIndex)) + 0.5;
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = cssVar("--chart-hover", "rgba(255,255,255,0.22)");
+      ctx.lineWidth = 1;
+      ctx.moveTo(hx, pad.t);
+      ctx.lineTo(hx, pad.t + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  };
+
+  /**
+   * Draw one marker on the series.
+   *
+   * @param {{x: number, y: number}} point The point to mark.
+   * @param {string} color Series colour as a hex string.
+   * @param {number} radius Marker radius in pixels.
+   * @param {boolean} hollow Whether to punch the panel colour through the middle.
+   */
+  LineChart.prototype.drawDot = function (point, color, radius, hollow) {
+    var ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = hollow ? cssVar("--chart-hole", "#07080c") : color;
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  };
+
+  /** Draw the placeholder shown when the series is empty. */
+  LineChart.prototype.drawEmpty = function () {
+    var ctx = this.ctx;
+    ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.28)");
+    ctx.font = "500 12px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.opts.emptyText || "No data for this range", this.w / 2, this.h / 2);
+  };
+
+  /** Resolve the pointer position to the nearest data point. */
+  LineChart.prototype.handlePointer = function () {
+    var padL = this.PAD.l, padR = this.PAD.r;
+    if (!this.data.length || !this.pointer) { this.hoverIndex = -1; return this.draw(); }
+    var plotW = Math.max(10, this.w - padL - padR);
+    var rel = FX.clamp((this.pointer.x - padL) / plotW, 0, 1);
+    var idx = Math.round(rel * (this.data.length - 1));
+    var changed = idx !== this.hoverIndex;
+    this.hoverIndex = idx;
+    this.draw();
+    if (changed && this.opts.onHover) this.opts.onHover(this.data[idx]);
+  };
+
+  /**
    * Donut chart for category shares of a total.
    *
    * Renders each slice with a gradient and a small gap, lifts the hovered
@@ -853,6 +1073,7 @@
   window.FX = FX;
   window.FinlifyCharts = {
     AreaChart: AreaChart,
+    LineChart: LineChart,
     DonutChart: DonutChart,
     BarChart: BarChart,
     Sparkline: Sparkline,

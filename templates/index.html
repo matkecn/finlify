@@ -38,6 +38,7 @@
     <a class="topnav-link" href="#accounts">Accounts</a>
     <a class="topnav-link" href="#breakdown">Breakdown</a>
     <a class="topnav-link" href="#budgets">Budgets</a>
+    <a class="topnav-link" href="#goals">Goals</a>
     <a class="topnav-link" href="#categories">Categories</a>
     <a class="topnav-link" href="#ledger">Ledger</a>
     <a class="topnav-link" href="#about">About</a>
@@ -289,6 +290,22 @@
     <div class="tooltip" id="cashflowTip" hidden></div>
   </section>
 
+  <section class="panel panel-networth" id="networth">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Net worth</h2>
+        <p class="panel-sub" id="netWorthSub">What you hold, month by month</p>
+      </div>
+      <div class="accounts-net">
+        <span class="accounts-net-label">Change</span>
+        <span class="accounts-net-value" id="netWorthChange">—</span>
+      </div>
+    </div>
+    <div class="chart-wrap chart-lg"><canvas id="netWorthChart" role="img" aria-label="Net worth over time"></canvas></div>
+    <div class="tooltip" id="netWorthTip" hidden></div>
+    <p class="panel-foot-note">Opening balances plus every transaction you have recorded. The last point is today, not the end of the month.</p>
+  </section>
+
   <section class="split" id="breakdown">
     <div class="panel">
       <div class="panel-head">
@@ -352,6 +369,20 @@
       </div>
       <ul class="insights" id="forecastList"></ul>
     </div>
+  </section>
+
+  <section class="panel panel-goals" id="goals">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Goals</h2>
+        <p class="panel-sub" id="goalsSub">What you are saving towards</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-ghost" id="newGoalBtn" type="button">New goal</button>
+      </div>
+    </div>
+    <ul class="goal-list" id="goalList"></ul>
+    <p class="panel-foot-note">A goal measures money you already hold, so it moves as soon as a transaction lands. Leave the account empty to measure your whole ledger.</p>
   </section>
 
   <section class="panel panel-categories" id="categories">
@@ -524,6 +555,46 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
         <button type="submit" class="btn btn-primary" id="txSubmit">Save transaction</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="goalsBackdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="goalsTitle">
+    <div class="modal-head">
+      <h2 id="goalsTitle">New goal</h2>
+      <button class="icon-btn" id="closeGoals" aria-label="Close goals">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <form id="goalForm">
+      <label class="field">
+        <span>Goal</span>
+        <input type="text" id="goalName" placeholder="Holiday fund" maxlength="40" autocomplete="off" required>
+      </label>
+
+      <label class="field">
+        <span>Target amount</span>
+        <input type="text" id="goalTarget" inputmode="decimal" placeholder="0.00" autocomplete="off" required>
+      </label>
+
+      <label class="field">
+        <span>Measure against</span>
+        <select id="goalAccount"></select>
+      </label>
+
+      <label class="field">
+        <span>Deadline</span>
+        <input type="date" id="goalDeadline">
+      </label>
+
+      <p class="form-error" id="goalError" hidden></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancelGoals">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="goalSubmit">Save goal</button>
       </div>
     </form>
   </div>

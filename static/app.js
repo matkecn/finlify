@@ -26,11 +26,13 @@
     breakdownType: "expense",
     modalType: "expense",
     editingId: null,
+    editingGoalId: null,
     offset: 0,
     limit: 25,
     total: 0,
     categories: [],
     accounts: [],
+    goals: [],
     seriesColours: null,
     filters: {
       search: "", type: "", category: "", account: "",
@@ -537,6 +539,11 @@
     });
     charts.daily = new C.BarChart($("dailyChart"), { onHover: showDailyTip });
     charts.daily.opts.color = series.violet;
+    charts.networth = new C.LineChart($("netWorthChart"), {
+      color: series.lime,
+      emptyText: "No net worth recorded yet",
+      onHover: showNetWorthTip,
+    });
     charts.sparks = {
       balance: new C.Sparkline($("sparkBalance"), { color: series.income }),
       income: new C.Sparkline($("sparkIncome"), { color: series.violet }),
@@ -574,6 +581,7 @@
     charts.cashflow.opts.incomeColor = series.income;
     charts.cashflow.opts.expenseColor = series.pink;
     if (charts.daily) charts.daily.opts.color = series.violet;
+    if (charts.networth) charts.networth.opts.color = series.lime;
     if (charts.sparks) {
       charts.sparks.balance.opts.color = series.income;
       charts.sparks.income.opts.color = series.violet;
@@ -603,6 +611,28 @@
       var n = charts.cashflow.data.length;
       var x = padL + (n === 1 ? plotW / 2 : (charts.cashflow.hoverIndex / (n - 1)) * plotW);
       tip.style.left = FX.clamp(x, 70, charts.cashflow.w - 70) + "px";
+      tip.style.top = "18px";
+      tip.hidden = false;
+    }
+  }
+
+  /**
+   * Position and fill the net worth tooltip for the hovered month.
+   *
+   * @param {Object|null} item The hovered month datum, or null to hide.
+   */
+  function showNetWorthTip(item) {
+    var tip = $("netWorthTip");
+    if (!item) { tip.hidden = true; return; }
+    tip.innerHTML =
+      '<div class="tip-row"><span class="tip-key">' + item.label + " " + String(item.year).slice(2) + "</span></div>" +
+      '<div class="tip-row"><span class="tip-key">Net worth</span><strong>' + FX.money(item.value) + "</strong></div>" +
+      '<div class="tip-row"><span class="tip-key">Change</span><span class="tip-val ' +
+      (item.change >= 0 ? "up" : "down") + '">' + FX.signed(item.change) + "</span></div>";
+    if (hasCharts() && charts.networth && charts.networth.hoverIndex >= 0 &&
+        charts.networth.data[charts.networth.hoverIndex] === item) {
+      var scale = charts.networth.scale();
+      tip.style.left = FX.clamp(scale.xFor(charts.networth.hoverIndex), 70, charts.networth.w - 70) + "px";
       tip.style.top = "18px";
       tip.hidden = false;
     }
@@ -718,6 +748,44 @@
     $("cashflowChart").setAttribute(
       "aria-label",
       "Cash flow: income versus expenses over the last " + series.length + " months"
+    );
+  }
+
+  /**
+   * Render the net worth line chart and the headline change beside it.
+   *
+   * @param {Array<Object>} series One net worth point per month.
+   */
+  function renderNetWorth(series) {
+    var points = series.map(function (p) {
+      return {
+        label: p.label,
+        year: p.year,
+        value: p.net_worth,
+        change: p.change,
+        change_cents: p.change_cents,
+      };
+    });
+    if (hasCharts() && charts.networth) charts.networth.setData(points);
+
+    var last = series[series.length - 1];
+    var change = $("netWorthChange");
+    if (last) {
+      change.textContent = FX.signed(last.change);
+      change.className = "accounts-net-value " + (last.change > 0 ? "is-up" : last.change < 0 ? "is-neg" : "");
+    } else {
+      change.textContent = "—";
+      change.className = "accounts-net-value";
+    }
+
+    $("netWorthSub").textContent = "What you hold · last " + series.length + " months";
+    $("netWorthChart").setAttribute(
+      "aria-label",
+      "Net worth over the last " + series.length + " months. " + (last
+        ? "Currently " + FX.money(last.net_worth) + ", " +
+          (last.change > 0 ? "up " : last.change < 0 ? "down " : "unchanged ") +
+          FX.money(Math.abs(last.change)) + " since last month."
+        : "Nothing recorded yet.")
     );
   }
 
@@ -850,6 +918,144 @@
       list.appendChild(li);
       requestAnimationFrame(function () { fill.style.width = FX.clamp(b.pct, 0, 100) + "%"; });
     });
+  }
+
+  /**
+   * Render the goal list with progress bars, deadline states, and row actions.
+   *
+   * Archived goals are hidden here rather than filtered out upstream, because
+   * the same list also reports the totals in its subtitle.
+   *
+   * @param {Array<Object>} goals Goal rows with their live progress.
+   */
+  function renderGoals(goals) {
+    var list = $("goalList");
+    list.innerHTML = "";
+    var all = goals || [];
+    var live = all.filter(function (g) { return !g.is_archived; });
+
+    if (!all.length) {
+      list.innerHTML = '<li class="empty">No goals yet. Add one to start tracking what you are saving towards.</li>';
+      $("goalsSub").textContent = "What you are saving towards";
+      return;
+    }
+
+    all.forEach(function (g) {
+      var li = document.createElement("li");
+      li.className = "goal-item" +
+        (g.state === "reached" ? " is-reached" : g.state === "overdue" ? " is-overdue" : "") +
+        (g.is_archived ? " is-archived" : "");
+      li.style.setProperty("--c", FX.safeColor(g.color, "#bef264"));
+
+      var top = document.createElement("div");
+      top.className = "goal-top";
+
+      var name = document.createElement("span");
+      name.className = "goal-name";
+      var dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = FX.safeColor(g.color, "#bef264");
+      var nameText = document.createElement("span");
+      nameText.textContent = g.name;
+      name.appendChild(dot);
+      name.appendChild(nameText);
+
+      var badge = document.createElement("span");
+      badge.className = "goal-badge";
+      badge.textContent = goalBadge(g);
+      name.appendChild(badge);
+
+      var nums = document.createElement("span");
+      nums.className = "goal-nums";
+      nums.textContent = FX.money(g.saved) + " / " + FX.money(g.target);
+
+      top.appendChild(name);
+      top.appendChild(nums);
+
+      var meta = document.createElement("span");
+      meta.className = "goal-meta";
+      meta.textContent = goalMeta(g);
+
+      var track = document.createElement("div");
+      track.className = "budget-track";
+      var fill = document.createElement("div");
+      fill.className = "budget-fill";
+      track.appendChild(fill);
+
+      var actions = document.createElement("div");
+      actions.className = "goal-actions";
+
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "cat-btn";
+      edit.innerHTML = ICON_EDIT;
+      edit.setAttribute("aria-label", "Edit " + g.name);
+      edit.addEventListener("click", function () { openGoal(g); });
+
+      var archive = document.createElement("button");
+      archive.type = "button";
+      archive.className = "cat-btn";
+      archive.textContent = g.is_archived ? "Restore" : "Archive";
+      archive.addEventListener("click", function () {
+        patchGoal(g.id, { is_archived: !g.is_archived });
+      });
+
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "cat-btn is-danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", function () { deleteGoal(g); });
+
+      actions.appendChild(edit);
+      actions.appendChild(archive);
+      actions.appendChild(del);
+
+      li.appendChild(top);
+      li.appendChild(track);
+      li.appendChild(meta);
+      li.appendChild(actions);
+      list.appendChild(li);
+      requestAnimationFrame(function () { fill.style.width = FX.clamp(g.pct, 0, 100) + "%"; });
+    });
+
+    var reached = all.filter(function (g) { return g.state === "reached"; }).length;
+    $("goalsSub").textContent = live.length + " active · " + reached + " reached";
+  }
+
+  /**
+   * The short state label shown beside a goal name.
+   *
+   * @param {Object} g One goal row.
+   * @returns {string} The badge text.
+   */
+  function goalBadge(g) {
+    if (g.is_archived) return "Archived";
+    if (g.state === "reached") return "Reached";
+    if (g.state === "overdue") return "Overdue";
+    if (g.deadline && g.days_left <= 30) return g.days_left + "d left";
+    return FX.pct(g.pct, 0);
+  }
+
+  /**
+   * The supporting line under a goal, explaining what is being measured.
+   *
+   * @param {Object} g One goal row.
+   * @returns {string} The meta line.
+   */
+  function goalMeta(g) {
+    var parts = [];
+    parts.push(g.account ? "Tracking " + g.account : "Tracking everything you hold");
+    if (g.state === "reached") {
+      parts.push("Target met");
+    } else if (g.deadline && g.days_left < 0) {
+      parts.push("Deadline passed " + FX.date(g.deadline, { day: "numeric", month: "short", year: "numeric" }));
+    } else if (g.deadline) {
+      parts.push("Due " + FX.date(g.deadline, { day: "numeric", month: "short", year: "numeric" }));
+      if (g.needed_per_month) parts.push(FX.money(g.needed_per_month) + " a month to get there");
+    } else {
+      parts.push(FX.money(g.remaining) + " to go");
+    }
+    return parts.join(" · ");
   }
 
   /**
@@ -1223,6 +1429,31 @@
     }
   }
 
+  /**
+   * Refill the goal dialog's account picker.
+   *
+   * The empty option is the meaningful default: a goal with no account measures
+   * the whole ledger, which is what someone saving for their first goal wants.
+   *
+   * @param {string} [keep] An account name to leave selected.
+   */
+  function renderGoalPickers(keep) {
+    var select = $("goalAccount");
+    var current = keep === undefined ? select.value : keep;
+    select.innerHTML = "";
+    var any = document.createElement("option");
+    any.value = "";
+    any.textContent = "Everything I hold";
+    select.appendChild(any);
+    state.accounts.forEach(function (a) {
+      var opt = document.createElement("option");
+      opt.value = a.name;
+      opt.textContent = a.is_archived ? a.name + " (archived)" : a.name;
+      select.appendChild(opt);
+    });
+    select.value = current || "";
+  }
+
   /** Populate the transaction category datalist and the budget category select. */
   function renderCategoryPickers() {
     var list = $("categoryPresets");
@@ -1337,11 +1568,16 @@
       })),
       api("/api/categories" + qs({ include_archived: true })),
       api("/api/accounts" + qs({ include_archived: true })),
+      api("/api/networth" + monthQ),
+      api("/api/goals" + qs({ include_archived: true })),
     ]).then(function (res) {
       state.categories = res[5].categories || [];
       state.accounts = res[6].accounts || [];
+      state.goals = res[8].goals || [];
       renderSummary(res[0]);
       renderSeries(res[1].series);
+      renderNetWorth(res[7].series);
+      renderGoals(state.goals);
       renderBreakdown(res[2].categories);
       renderDaily(res[3].series);
       renderLedger(res[4]);
@@ -1352,6 +1588,7 @@
       renderCategoryManager();
       renderCategoryPickers();
       renderAccountPickers();
+      renderGoalPickers();
       setStatus("is-live", "live");
     }).catch(function (err) {
       setStatus("is-error", "error");
@@ -1726,6 +1963,146 @@
   }
 
   /**
+   * Open the goal modal, prefilled when editing an existing goal.
+   *
+   * @param {Object} [goal] The goal to edit, or omit to create one.
+   */
+  function openGoal(goal) {
+    if ($("goalsBackdrop").hidden) dialogReturnFocus = document.activeElement;
+    $("goalsBackdrop").hidden = false;
+    setBackgroundInert(true);
+    // A previous save leaves the button disabled until it is re-enabled here;
+    // form.reset() does not restore it.
+    $("goalSubmit").disabled = false;
+
+    if (goal) {
+      state.editingGoalId = goal.id;
+      $("goalName").value = goal.name;
+      $("goalTarget").value = String(goal.target);
+      $("goalDeadline").value = goal.deadline || "";
+      renderGoalPickers(goal.account || "");
+      $("goalsTitle").textContent = "Edit goal";
+      $("goalSubmit").textContent = "Save changes";
+    } else {
+      state.editingGoalId = null;
+      $("goalForm").reset();
+      renderGoalPickers("");
+      $("goalsTitle").textContent = "New goal";
+      $("goalSubmit").textContent = "Save goal";
+    }
+    $("goalError").hidden = true;
+    $("goalName").focus();
+    $("goalName").select();
+  }
+
+  /** Close and reset the goal modal. */
+  function closeGoal() {
+    $("goalsBackdrop").hidden = true;
+    $("goalForm").reset();
+    $("goalError").hidden = true;
+    state.editingGoalId = null;
+    $("goalsTitle").textContent = "New goal";
+    $("goalSubmit").textContent = "Save goal";
+    $("goalSubmit").disabled = false;
+    setBackgroundInert(false);
+    if (dialogReturnFocus && document.contains(dialogReturnFocus)) {
+      dialogReturnFocus.focus();
+    }
+    dialogReturnFocus = null;
+  }
+
+  /**
+   * Create or update a goal from the modal form.
+   *
+   * @param {Event} event The submit event, prevented so the page does not post.
+   */
+  function submitGoal(event) {
+    event.preventDefault();
+    var error = $("goalError");
+    error.hidden = true;
+
+    var raw = $("goalTarget").value.replace(",", ".").trim();
+    if (!raw || isNaN(Number(raw)) || Number(raw) <= 0) {
+      error.textContent = "Enter a target greater than zero.";
+      error.hidden = false;
+      return;
+    }
+
+    var isEdit = state.editingGoalId !== null;
+    var url = isEdit ? "/api/goals/" + state.editingGoalId : "/api/goals";
+    var method = isEdit ? "PUT" : "POST";
+    var btn = $("goalSubmit");
+    btn.disabled = true;
+    btn.textContent = isEdit ? "Updating…" : "Saving…";
+
+    api(url, {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("goalName").value.trim(),
+        target: raw,
+        account: $("goalAccount").value || null,
+        deadline: $("goalDeadline").value || null,
+      }),
+    }).then(function () {
+      var label = isEdit ? "Goal updated" : "Goal '" + $("goalName").value.trim() + "' created";
+      closeGoal();
+      toast(label, "success");
+      return loadAll();
+    }).catch(function (e) {
+      error.textContent = e.message;
+      error.hidden = false;
+      btn.disabled = false;
+      btn.textContent = isEdit ? "Save changes" : "Save goal";
+    });
+  }
+
+  /**
+   * Apply a partial update to a goal, such as archiving or restoring it.
+   *
+   * @param {number} id The goal's id.
+   * @param {Object} patch The fields to change.
+   */
+  function patchGoal(id, patch) {
+    var current = state.goals.filter(function (g) { return g.id === id; })[0];
+    if (!current) return;
+    api("/api/goals/" + id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: current.name,
+        target: String(current.target),
+        account: current.account || null,
+        deadline: current.deadline || null,
+        is_archived: patch.is_archived === undefined ? current.is_archived : patch.is_archived,
+        sort_order: current.sort_order,
+      }),
+    }).then(function () {
+      toast(patch.is_archived ? "Goal archived" : "Goal restored", "success");
+      return loadAll();
+    }).catch(function (e) {
+      toast(e.message, "error");
+    });
+  }
+
+  /**
+   * Delete a goal after confirming.
+   *
+   * @param {Object} goal The goal row to remove.
+   */
+  function deleteGoal(goal) {
+    if (!window.confirm("Delete goal '" + goal.name + "'? This cannot be undone.")) return;
+    api("/api/goals/" + goal.id, { method: "DELETE" })
+      .then(function () {
+        toast("Goal '" + goal.name + "' deleted", "success");
+        return loadAll();
+      })
+      .catch(function (e) {
+        toast(e.message, "error");
+      });
+  }
+
+  /**
    * Close a dialog when its scrim is pressed, but not when a selection drag
    * inside the dialog happens to end over the scrim.
    *
@@ -1909,7 +2286,8 @@
   function bindShortcuts() {
     document.addEventListener("keydown", function (e) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      var dialogOpen = !$("modalBackdrop").hidden || !$("settingsBackdrop").hidden;
+      var dialogOpen = !$("modalBackdrop").hidden ||
+        !$("settingsBackdrop").hidden || !$("goalsBackdrop").hidden;
       if (dialogOpen || isTypingTarget(e.target)) return;
 
       if (e.key === "/") {
@@ -2024,6 +2402,11 @@
     $("cancelModal").addEventListener("click", closeModal);
     bindScrimClose($("modalBackdrop"), closeModal);
     $("txForm").addEventListener("submit", submitTransaction);
+    $("newGoalBtn").addEventListener("click", function () { openGoal(); });
+    $("closeGoals").addEventListener("click", closeGoal);
+    $("cancelGoals").addEventListener("click", closeGoal);
+    bindScrimClose($("goalsBackdrop"), closeGoal);
+    $("goalForm").addEventListener("submit", submitGoal);
     $("budgetForm").addEventListener("submit", submitBudget);
     $("categoryForm").addEventListener("submit", createCategory);
     $("accountForm").addEventListener("submit", createAccount);
@@ -2064,6 +2447,7 @@
       if (e.key !== "Escape") return;
       if (!$("settingsBackdrop").hidden) closeSettings();
       else if (!$("modalBackdrop").hidden) closeModal();
+      else if (!$("goalsBackdrop").hidden) closeGoal();
       else if (!$("userPop").hidden) closeUserPop();
     });
   }
