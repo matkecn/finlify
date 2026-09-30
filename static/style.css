@@ -1419,3 +1419,119 @@ main {
   .user-chip { padding: 4px; }
   .people-form { flex-wrap: wrap; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   PREMIUM REDESIGN
+   Each block below refines the earlier system rather than replacing
+   it, so the rest of the file stays the source of truth.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── C1 · Foundations ─────────────────────────────────────────── */
+
+:root {
+  --r-lg: 20px;
+  --font-display: "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 10px 26px -18px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 18px 44px -24px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 30px 70px -28px rgba(0, 0, 0, 0.8);
+  --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="light"] {
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 28px -18px rgba(15, 23, 42, 0.22);
+  --shadow-md: 0 20px 48px -26px rgba(15, 23, 42, 0.26);
+  --shadow-pop: 0 34px 80px -30px rgba(15, 23, 42, 0.34);
+  --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --bg-line: rgba(15, 23, 42, 0.06);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="auto"] {
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 28px -18px rgba(15, 23, 42, 0.22);
+    --shadow-md: 0 20px 48px -26px rgba(15, 23, 42, 0.26);
+    --shadow-pop: 0 34px 80px -30px rgba(15, 23, 42, 0.34);
+    --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+}
+
+body {
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+
+/* Editorial panel numbering: every panel gets a running index. */
+main { counter-reset: section; }
+.panel { counter-increment: section; position: relative; }
+.panel-title::before {
+  content: "0" counter(section) " ·  ";
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+/* Hero: tightened into an editorial band with an eyebrow line. */
+.hero {
+  align-items: flex-end;
+  padding-bottom: 26px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(120% 120% at 0% 0%, var(--bg-lift) 0%, transparent 55%);
+}
+.hero-eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 640;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.hero-sub {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.hero-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-right: 4px;
+}
+.hero-controls { align-items: center; }
+
+/* Panels and cards sit on a layered, softly shadowed surface. */
+.panel {
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 26%, var(--panel) 100%);
+  box-shadow: var(--shadow-sm);
+}
+.panel::before,
+.stat::before {
+  height: 1px;
+  background: var(--hairline, linear-gradient(90deg, transparent, var(--line-hi)));
+  opacity: 0.55;
+}
+.panel:hover::before,
+.stat:hover::before { opacity: 1; }
+.panel-head { margin-bottom: 16px; }
+
+.stat {
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  background: linear-gradient(180deg, var(--panel-hi) 0%, var(--panel) 30%, var(--panel) 100%);
+}
+
+@media (max-width: 820px) {
+  .hero { padding-bottom: 20px; }
+  .hero-title { font-size: 27px; }
+}

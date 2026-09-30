@@ -583,6 +583,11 @@
     $("greeting").textContent =
       hour < 5 ? "Still up" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
+    var now = new Date();
+    $("heroEyebrow").textContent =
+      "Your private ledger · " +
+      now.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
     var bits = [];
     if (data.classified_count === 0) {
       bits.push("No transactions yet — add your first one with the Add button");
