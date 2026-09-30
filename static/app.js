@@ -32,12 +32,17 @@
     categories: [],
     accounts: [],
     seriesColours: null,
-    filters: { search: "", type: "", category: "", account: "", sort: "date", order: "desc" },
+    filters: {
+      search: "", type: "", category: "", account: "",
+      from: "", to: "", min: "", max: "",
+      sort: "date", order: "desc",
+    },
   };
 
   var started = false;
   var charts = {};
   var chartsReady = true;
+  var modalReturnFocus = null;
   var $ = function (id) { return document.getElementById(id); };
 
   var ICON_EDIT =
@@ -370,21 +375,47 @@
   }
 
   /**
-   * Show a transient notification.
+   * Show a transient notification, optionally with an action button.
+   *
+   * A toast carrying an action lingers longer and pauses its own dismissal while
+   * the pointer is over it, so the action cannot vanish from under the cursor.
    *
    * @param {string} message The message text.
    * @param {string} [kind] One of "info", "success", or "error".
+   * @param {{label: string, onClick: function(): void}} [action] Optional action.
    */
-  function toast(message, kind) {
+  function toast(message, kind, action) {
     var el = document.createElement("div");
     el.className = "toast " + (kind || "info");
-    el.innerHTML = '<span class="toast-dot"></span><span></span>';
-    el.lastChild.textContent = message;
-    $("toasts").appendChild(el);
-    setTimeout(function () {
+    el.innerHTML = '<span class="toast-dot"></span><span class="toast-msg"></span>';
+    el.querySelector(".toast-msg").textContent = message;
+
+    var timer = null;
+    var dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      clearTimeout(timer);
       el.classList.add("is-out");
       setTimeout(function () { el.remove(); }, 300);
-    }, 3800);
+    }
+
+    if (action) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toast-action";
+      btn.textContent = action.label;
+      btn.addEventListener("click", function () {
+        dismiss();
+        action.onClick();
+      });
+      el.appendChild(btn);
+      el.addEventListener("mouseenter", function () { clearTimeout(timer); });
+      el.addEventListener("mouseleave", function () { timer = setTimeout(dismiss, 2000); });
+    }
+
+    $("toasts").appendChild(el);
+    timer = setTimeout(dismiss, action ? 8000 : 3800);
   }
 
   /**
@@ -676,6 +707,10 @@
       }));
     }
     $("cashflowSub").textContent = "Income vs expenses · last " + series.length + " months";
+    $("cashflowChart").setAttribute(
+      "aria-label",
+      "Cash flow: income versus expenses over the last " + series.length + " months"
+    );
   }
 
   /**
@@ -691,6 +726,9 @@
     if (!categories.length) {
       legend.innerHTML = '<li class="empty">Nothing recorded for this range yet.</li>';
       $("breakdownSub").textContent = "By category";
+      $("categoryChart").setAttribute(
+        "aria-label", "Spending mix by category. Nothing recorded for this range."
+      );
       return;
     }
 
@@ -727,6 +765,11 @@
     var total = categories.reduce(function (s, c) { return s + c.total; }, 0);
     $("breakdownSub").textContent =
       categories.length + " categories · " + FX.money(total) + " total";
+    $("categoryChart").setAttribute(
+      "aria-label",
+      "Spending mix by category. Largest: " + categories[0].category +
+        " at " + categories[0].pct.toFixed(1) + " percent."
+    );
   }
 
   /**
@@ -743,6 +786,11 @@
     }, series[0] || { net: 0, date: null });
     $("pulsePeak").textContent = peak && peak.date
       ? FX.signed(peak.net) + " · " + FX.dayShort(peak.date) : "—";
+    $("dailyChart").setAttribute(
+      "aria-label",
+      "Daily net spending for the last " + series.length + " days. Average " +
+        FX.signed(avg) + " per day."
+    );
   }
 
   /**
@@ -954,7 +1002,7 @@
           e.stopPropagation(); openModal(t);
         });
         tr.querySelector(".js-del").addEventListener("click", function (e) {
-          e.stopPropagation(); removeTransaction(t.id);
+          e.stopPropagation(); removeTransaction(t);
         });
         tr.addEventListener("click", function () { openModal(t); });
         body.appendChild(tr);
@@ -1192,6 +1240,69 @@
     select.value = current;
   }
 
+  /**
+   * Find an existing category by name, ignoring case and surrounding space.
+   *
+   * The server normalises names (collapse whitespace, title case), so the name a
+   * person types rarely equals the stored one byte for byte.
+   *
+   * @param {string} name The typed category name.
+   * @returns {Object|null} The matching category, or null.
+   */
+  function findCategory(name) {
+    var needle = String(name || "").trim().toLowerCase();
+    if (!needle) return null;
+    var match = null;
+    state.categories.forEach(function (c) {
+      if (c.name.toLowerCase() === needle) match = c;
+    });
+    return match;
+  }
+
+  /** Reload the category list and repopulate the pickers that depend on it. */
+  function refreshCategories() {
+    return api("/api/categories" + qs({ include_archived: true })).then(function (res) {
+      state.categories = res.categories || [];
+      renderCategoryPickers();
+    });
+  }
+
+  /**
+   * Resolve a typed category name, creating the category if it is new.
+   *
+   * Saving a transaction used to dead-end on "Unknown category … Create it
+   * first." Instead of making the person leave the dialog, this creates the
+   * category inline and returns the server's canonical name so the transaction
+   * references the right row.
+   *
+   * @param {string} name The name typed into the category field.
+   * @returns {Promise<string>} The canonical name to store on the transaction.
+   */
+  function ensureCategory(name) {
+    var existing = findCategory(name);
+    if (existing) return Promise.resolve(existing.name);
+
+    return api("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, kind: state.modalType }),
+    }).then(function (created) {
+      state.categories.push(created);
+      renderCategoryPickers();
+      toast("Category '" + created.name + "' created", "success");
+      return created.name;
+    }).catch(function (e) {
+      // A 409 means it already exists, which can happen if another tab created
+      // it or the typed spelling only differs by case. Resolve and carry on.
+      if (e.status !== 409) throw e;
+      return refreshCategories().then(function () {
+        var found = findCategory(name);
+        if (!found) throw e;
+        return found.name;
+      });
+    });
+  }
+
   /** Fetch every dataset the dashboard needs and render the page. */
   function loadAll() {
     setStatus("", "syncing");
@@ -1209,6 +1320,10 @@
         category: state.filters.category,
         account: state.filters.account,
         search: state.filters.search,
+        date_from: state.filters.from,
+        date_to: state.filters.to,
+        amount_min: state.filters.min,
+        amount_max: state.filters.max,
         sort: state.filters.sort,
         order: state.filters.order,
       })),
@@ -1237,20 +1352,52 @@
   }
 
   /**
-   * Delete a transaction and refresh the dashboard.
+   * Delete a transaction and refresh the dashboard, offering an undo.
    *
-   * @param {number} id The transaction id.
+   * Deletion is immediate, and the toast's Undo action recreates the row from
+   * the data already in hand. Recreating mints a new id rather than restoring
+   * the old one, which is a fair trade for not having to hold the delete open.
+   *
+   * @param {Object} t The transaction that is being removed.
    */
-  function removeTransaction(id) {
-    api("/api/transactions/" + id, { method: "DELETE" })
+  function removeTransaction(t) {
+    api("/api/transactions/" + t.id, { method: "DELETE" })
       .then(function () {
-        toast("Transaction deleted", "success");
         if (state.offset > 0 && state.offset >= state.total) {
           state.offset = Math.max(0, state.offset - state.limit);
         }
         return loadAll();
       })
+      .then(function () {
+        toast("Transaction deleted", "success", {
+          label: "Undo",
+          onClick: function () { restoreTransaction(t); },
+        });
+      })
       .catch(function (e) { toast(e.message, "error"); });
+  }
+
+  /**
+   * Recreate a just-deleted transaction.
+   *
+   * @param {Object} t The transaction to restore.
+   */
+  function restoreTransaction(t) {
+    api("/api/transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: t.amount,
+        type: t.type,
+        category: t.category,
+        account: t.account,
+        description: t.description,
+        date: t.date,
+      }),
+    }).then(function () {
+      toast("Transaction restored", "success");
+      return loadAll();
+    }).catch(function (e) { toast(e.message, "error"); });
   }
 
   /**
@@ -1264,31 +1411,26 @@
     error.hidden = true;
 
     var raw = $("txAmount").value.replace(",", ".").trim();
-    var payload = {
-      amount: raw,
-      type: state.modalType,
-      category: $("txCategory").value,
-      account: $("txAccount").value,
-      description: $("txDescription").value.trim() || null,
-      date: $("txDate").value,
-    };
+    var categoryName = $("txCategory").value.trim();
+    var account = $("txAccount").value;
+    var date = $("txDate").value;
 
     if (!raw || isNaN(Number(raw)) || Number(raw) <= 0) {
       error.textContent = "Enter an amount greater than zero.";
       error.hidden = false;
       return;
     }
-    if (!payload.category.trim()) {
+    if (!categoryName) {
       error.textContent = "Choose a category.";
       error.hidden = false;
       return;
     }
-    if (!payload.account) {
+    if (!account) {
       error.textContent = "Choose an account.";
       error.hidden = false;
       return;
     }
-    if (!payload.date) {
+    if (!date) {
       error.textContent = "Pick a date.";
       error.hidden = false;
       return;
@@ -1301,10 +1443,21 @@
     btn.disabled = true;
     btn.textContent = isEdit ? "Updating…" : "Saving…";
 
-    api(url, {
-      method: method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    // A name the person typed but never saved as a category is created here, so
+    // the dialog never dead-ends on "Unknown category".
+    ensureCategory(categoryName).then(function (name) {
+      return api(url, {
+        method: method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: raw,
+          type: state.modalType,
+          category: name,
+          account: account,
+          description: $("txDescription").value.trim() || null,
+          date: date,
+        }),
+      });
     }).then(function () {
       closeModal();
       state.offset = 0;
@@ -1514,6 +1667,7 @@
    * @param {Object} [transaction] The transaction to edit, or omit to create.
    */
   function openModal(transaction) {
+    if ($("modalBackdrop").hidden) modalReturnFocus = document.activeElement;
     $("modalBackdrop").hidden = false;
     // A previous save leaves the button disabled until it is re-enabled here;
     // form.reset() does not restore it.
@@ -1555,6 +1709,10 @@
     $("modalTitle").textContent = "New transaction";
     $("txSubmit").textContent = "Save transaction";
     $("txSubmit").disabled = false;
+    if (modalReturnFocus && document.contains(modalReturnFocus)) {
+      modalReturnFocus.focus();
+    }
+    modalReturnFocus = null;
   }
 
   /**
@@ -1635,6 +1793,8 @@
     [
       ["filterType", "type"], ["filterCategory", "category"],
       ["filterAccount", "account"], ["filterSort", "sort"], ["filterOrder", "order"],
+      ["filterFrom", "from"], ["filterTo", "to"],
+      ["filterMin", "min"], ["filterMax", "max"],
     ].forEach(function (pair) {
       $(pair[0]).addEventListener("change", function (e) {
         state.filters[pair[1]] = e.target.value;
@@ -1650,6 +1810,38 @@
     $("pageNext").addEventListener("click", function () {
       state.offset += state.limit;
       loadAll();
+    });
+  }
+
+  /**
+   * Whether keyboard focus is somewhere that consumes typing.
+   *
+   * @param {EventTarget} target The event target.
+   * @returns {boolean} True when a plain key press would be text input.
+   */
+  function isTypingTarget(target) {
+    if (!target || !target.tagName) return false;
+    var tag = target.tagName;
+    var editable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
+      target.isContentEditable === true;
+    return editable && !target.closest("[hidden]");
+  }
+
+  /** Bind the global keyboard shortcuts. */
+  function bindShortcuts() {
+    document.addEventListener("keydown", function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var dialogOpen = !$("modalBackdrop").hidden || !$("settingsBackdrop").hidden;
+      if (dialogOpen || isTypingTarget(e.target)) return;
+
+      if (e.key === "/") {
+        e.preventDefault();
+        $("filterSearch").focus();
+        $("filterSearch").select();
+      } else if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        openModal();
+      }
     });
   }
 
@@ -1744,6 +1936,7 @@
     auth.onCurrencyChanged(repaintCharts);
     bindFilters();
     bindRanges();
+    bindShortcuts();
     startClock();
     observeReveals();
 

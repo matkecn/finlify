@@ -549,6 +549,26 @@ class BudgetIn(BaseModel):
         return v
 
 
+def optional_amount_cents(raw: str | None, field: str) -> int | None:
+    """Parse an optional major-unit amount filter into cents.
+
+    Blank values mean "no bound" and return ``None``. Unlike a transaction
+    amount, a filter bound may be zero, so the signed parser is used.
+
+    Raises:
+        HTTPException: With status 422 if the value is not a usable amount.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return parse_signed_cents(text, field)
+    except MoneyError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 def load_transactions(
     db: Session,
     user_id: int,
@@ -948,6 +968,8 @@ def list_transactions(
     search: str | None = Query(None, max_length=140),
     date_from: dt_date | None = Query(None),
     date_to: dt_date | None = Query(None),
+    amount_min: str | None = Query(None, description="Minimum amount, in major units"),
+    amount_max: str | None = Query(None, description="Maximum amount, in major units"),
     sort: str = Query("date"),
     order: str = Query("desc"),
     user: User = Depends(current_user),
@@ -978,6 +1000,13 @@ def list_transactions(
         query = query.filter(Transaction.date >= date_from)
     if date_to:
         query = query.filter(Transaction.date <= date_to)
+
+    low = optional_amount_cents(amount_min, "amount_min")
+    high = optional_amount_cents(amount_max, "amount_max")
+    if low is not None:
+        query = query.filter(Transaction.amount_cents >= low)
+    if high is not None:
+        query = query.filter(Transaction.amount_cents <= high)
 
     column = {
         "date": Transaction.date,

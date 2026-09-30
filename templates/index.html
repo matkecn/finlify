@@ -197,7 +197,7 @@
         <span class="delta" id="statBalanceDelta"></span>
         <span class="stat-meta" id="statBalanceMeta">all time</span>
       </div>
-      <div class="stat-spark"><canvas id="sparkBalance"></canvas></div>
+      <div class="stat-spark"><canvas id="sparkBalance" role="img" aria-label="Balance trend"></canvas></div>
     </article>
 
     <article class="stat" data-accent="violet">
@@ -212,7 +212,7 @@
         <span class="delta" id="statIncomeDelta"></span>
         <span class="stat-meta" id="statIncomeMeta">this month</span>
       </div>
-      <div class="stat-spark"><canvas id="sparkIncome"></canvas></div>
+      <div class="stat-spark"><canvas id="sparkIncome" role="img" aria-label="Income trend"></canvas></div>
     </article>
 
     <article class="stat" data-accent="pink">
@@ -227,7 +227,7 @@
         <span class="delta" id="statExpensesDelta"></span>
         <span class="stat-meta" id="statExpensesMeta">this month</span>
       </div>
-      <div class="stat-spark"><canvas id="sparkExpenses"></canvas></div>
+      <div class="stat-spark"><canvas id="sparkExpenses" role="img" aria-label="Expense trend"></canvas></div>
     </article>
 
     <article class="stat" data-accent="lime">
@@ -242,7 +242,7 @@
         <span class="delta flat" id="statSavingsDelta"></span>
         <span class="stat-meta" id="statSavingsMeta">of gross income</span>
       </div>
-      <div class="stat-spark"><canvas id="sparkSavings"></canvas></div>
+      <div class="stat-spark"><canvas id="sparkSavings" role="img" aria-label="Savings rate trend"></canvas></div>
     </article>
   </section>
 
@@ -285,7 +285,7 @@
         <button class="chip is-active" data-series="expenses"><i class="swatch" style="--c:#f0abfc"></i>Expenses</button>
       </div>
     </div>
-    <div class="chart-wrap chart-lg"><canvas id="cashflowChart"></canvas></div>
+    <div class="chart-wrap chart-lg"><canvas id="cashflowChart" role="img" aria-label="Cash flow: income versus expenses"></canvas></div>
     <div class="tooltip" id="cashflowTip" hidden></div>
   </section>
 
@@ -297,7 +297,7 @@
           <p class="panel-sub" id="breakdownSub">By category</p>
         </div>
       </div>
-      <div class="chart-wrap chart-donut"><canvas id="categoryChart"></canvas></div>
+      <div class="chart-wrap chart-donut"><canvas id="categoryChart" role="img" aria-label="Spending mix by category"></canvas></div>
       <ul class="legend" id="categoryLegend"></ul>
     </div>
 
@@ -308,7 +308,7 @@
           <p class="panel-sub">Net flow, last 30 days</p>
         </div>
       </div>
-      <div class="chart-wrap chart-md"><canvas id="dailyChart"></canvas></div>
+      <div class="chart-wrap chart-md"><canvas id="dailyChart" role="img" aria-label="Daily net spending"></canvas></div>
       <div class="tooltip" id="dailyTip" hidden></div>
       <div class="pulse-stats">
         <div><span class="mini-label">Avg daily</span><span class="mini-value" id="pulseAvg">—</span></div>
@@ -399,6 +399,10 @@
       </select>
       <select id="filterCategory" aria-label="Category"><option value="">All categories</option></select>
       <select id="filterAccount" aria-label="Account"><option value="">All accounts</option></select>
+      <input type="date" id="filterFrom" aria-label="From date">
+      <input type="date" id="filterTo" aria-label="To date">
+      <input type="number" id="filterMin" placeholder="Min amount" aria-label="Minimum amount" min="0" step="0.01">
+      <input type="number" id="filterMax" placeholder="Max amount" aria-label="Maximum amount" min="0" step="0.01">
       <select id="filterSort" aria-label="Sort">
         <option value="date">Date</option>
         <option value="amount">Amount</option>

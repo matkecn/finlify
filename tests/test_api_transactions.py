@@ -148,6 +148,35 @@ def test_date_range_filter(client):
     assert body["total"] == 1 and body["items"][0]["date"] == "2026-09-15"
 
 
+def test_amount_range_filter(client):
+    make(client, amount="5.00")
+    make(client, amount="25.00")
+    make(client, amount="120.00")
+    body = client.get("/api/transactions?amount_min=10&amount_max=50").json()
+    assert body["total"] == 1 and body["items"][0]["amount_cents"] == 2500
+
+
+def test_amount_bounds_are_inclusive(client):
+    make(client, amount="25.00")
+    assert client.get("/api/transactions?amount_min=25&amount_max=25").json()["total"] == 1
+
+
+def test_amount_min_may_be_zero(client):
+    make(client, amount="5.00")
+    assert client.get("/api/transactions?amount_min=0").json()["total"] == 1
+
+
+def test_blank_amount_bounds_are_ignored(client):
+    make(client, amount="5.00")
+    body = client.get("/api/transactions?amount_min=&amount_max=").json()
+    assert body["total"] == 1
+
+
+@pytest.mark.parametrize("param", ["amount_min=abc", "amount_max=1.2.3", "amount_min=-"])
+def test_invalid_amount_bounds_are_rejected(client, param):
+    assert client.get(f"/api/transactions?{param}").status_code == 422
+
+
 @pytest.mark.parametrize(
     "sort,order,expected",
     [

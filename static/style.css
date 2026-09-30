@@ -683,7 +683,9 @@ main {
 .insight.warn .insight-icon { color: var(--warn); }
 .insight.bad  .insight-icon { color: var(--neg); }
 
-.filters { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.filters > * { flex: 1 1 128px; min-width: 0; }
+.filters #filterSearch { flex: 2 1 220px; }
 
 .filters input, .filters select, .budget-form input, .field input {
   padding: 7px 10px;
@@ -1829,6 +1831,21 @@ main { counter-reset: section; }
   height: 7px;
   box-shadow: 0 0 8px currentColor;
 }
+.toast { pointer-events: auto; }
+.toast-action {
+  margin-left: 8px;
+  padding: 4px 11px;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.toast-action:hover { border-color: var(--accent); }
 
 /* Auth gate sits on the same system. */
 .auth-card {
