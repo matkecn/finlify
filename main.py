@@ -13,6 +13,7 @@ from datetime import date as dt_date
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
@@ -56,6 +57,37 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def same_host(source: str, host: str | None) -> bool:
+    """Return whether a request's Origin or Referer names ``host``.
+
+    Only the host and port are compared, so the check survives the http/https
+    difference a TLS-terminating proxy can introduce.
+    """
+    if not host or source == "null":
+        return False
+    return urlsplit(source).netloc.lower() == host.lower()
+
+
+@app.middleware("http")
+async def reject_cross_site_writes(request: Request, call_next):
+    """Refuse state-changing requests whose source is a different site.
+
+    The session cookie is already SameSite=Lax, which keeps modern browsers
+    from attaching it to cross-site unsafe requests. This adds a same-origin
+    check on top: when an Origin (or, failing that, a Referer) is present, it
+    must name the host the request reached. Non-browser callers such as curl or
+    the test client that send neither header are unaffected.
+    """
+    if request.method in UNSAFE_METHODS:
+        source = request.headers.get("origin") or request.headers.get("referer")
+        if source and not same_host(source, request.headers.get("host")):
+            return JSONResponse({"detail": "Cross-site request rejected"}, status_code=403)
+    return await call_next(request)
+
 
 migrations.run(engine)
 
