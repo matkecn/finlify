@@ -42,7 +42,7 @@
   var started = false;
   var charts = {};
   var chartsReady = true;
-  var modalReturnFocus = null;
+  var dialogReturnFocus = null;
   var $ = function (id) { return document.getElementById(id); };
 
   var ICON_EDIT =
@@ -143,6 +143,7 @@
    * Open the settings sheet and fill it from the signed-in user.
    */
   function openSettings() {
+    if ($("settingsBackdrop").hidden) dialogReturnFocus = document.activeElement;
     closeUserPop();
     var user = state.user;
     $("settingsName").value = user.display_name || "";
@@ -153,6 +154,8 @@
     $("adminBlock").hidden = !user.is_admin;
     if (user.is_admin) loadPeople();
     $("settingsBackdrop").hidden = false;
+    setBackgroundInert(true);
+    $("settingsName").focus();
   }
 
   /**
@@ -160,6 +163,11 @@
    */
   function closeSettings() {
     $("settingsBackdrop").hidden = true;
+    setBackgroundInert(false);
+    if (dialogReturnFocus && document.contains(dialogReturnFocus)) {
+      dialogReturnFocus.focus();
+    }
+    dialogReturnFocus = null;
   }
 
   /**
@@ -1667,8 +1675,9 @@
    * @param {Object} [transaction] The transaction to edit, or omit to create.
    */
   function openModal(transaction) {
-    if ($("modalBackdrop").hidden) modalReturnFocus = document.activeElement;
+    if ($("modalBackdrop").hidden) dialogReturnFocus = document.activeElement;
     $("modalBackdrop").hidden = false;
+    setBackgroundInert(true);
     // A previous save leaves the button disabled until it is re-enabled here;
     // form.reset() does not restore it.
     $("txSubmit").disabled = false;
@@ -1709,10 +1718,11 @@
     $("modalTitle").textContent = "New transaction";
     $("txSubmit").textContent = "Save transaction";
     $("txSubmit").disabled = false;
-    if (modalReturnFocus && document.contains(modalReturnFocus)) {
-      modalReturnFocus.focus();
+    setBackgroundInert(false);
+    if (dialogReturnFocus && document.contains(dialogReturnFocus)) {
+      dialogReturnFocus.focus();
     }
-    modalReturnFocus = null;
+    dialogReturnFocus = null;
   }
 
   /**
@@ -1827,6 +1837,74 @@
     return editable && !target.closest("[hidden]");
   }
 
+  /** The container of the dialog that is currently open, if any. */
+  function openDialog() {
+    return document.querySelector(".modal-backdrop:not([hidden]) .modal");
+  }
+
+  /** Elements behind a dialog that should be inert while one is open. */
+  function dialogBackground() {
+    return [document.querySelector("header.topbar"), $("overview"), $("authGate")].filter(Boolean);
+  }
+
+  /**
+   * Hide the page behind an open dialog from pointer and assistive technology.
+   *
+   * @param {boolean} on Whether a dialog is now open.
+   */
+  function setBackgroundInert(on) {
+    dialogBackground().forEach(function (el) {
+      if (on) {
+        el.setAttribute("inert", "");
+        el.setAttribute("aria-hidden", "true");
+      } else {
+        el.removeAttribute("inert");
+        el.removeAttribute("aria-hidden");
+      }
+    });
+  }
+
+  /**
+   * Keep Tab focus cycling inside the open dialog.
+   *
+   * @param {KeyboardEvent} event The Tab keydown event.
+   */
+  function trapFocus(event) {
+    var dialog = openDialog();
+    if (!dialog) return;
+    var focusables = [
+      "a[href]", "button:not([disabled])", "input:not([disabled]):not([type='hidden'])",
+      "select:not([disabled])", "textarea:not([disabled])", "[tabindex]:not([tabindex='-1'])",
+    ].join(", ");
+    var items = Array.prototype.filter.call(
+      dialog.querySelectorAll(focusables),
+      function (el) { return el.offsetParent !== null || el === document.activeElement; }
+    );
+    if (!items.length) {
+      event.preventDefault();
+      return;
+    }
+    var first = items[0];
+    var last = items[items.length - 1];
+    var active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || !dialog.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !dialog.contains(active)) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  /** Trap Tab inside an open dialog and cycle focus within it. */
+  function bindDialogFocus() {
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Tab" && openDialog()) trapFocus(e);
+    });
+  }
+
   /** Bind the global keyboard shortcuts. */
   function bindShortcuts() {
     document.addEventListener("keydown", function (e) {
@@ -1937,6 +2015,7 @@
     bindFilters();
     bindRanges();
     bindShortcuts();
+    bindDialogFocus();
     startClock();
     observeReveals();
 

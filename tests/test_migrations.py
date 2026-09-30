@@ -77,6 +77,10 @@ def _column_names(engine, table):
     return {c["name"] for c in inspect(engine).get_columns(table)}
 
 
+def _index_names(engine, table):
+    return {index["name"] for index in inspect(engine).get_indexes(table)}
+
+
 def test_migrates_float_money_columns_to_integer_cents(tmp_path):
     engine = _legacy_engine(tmp_path / "legacy.db")
 
@@ -118,6 +122,33 @@ def test_account_column_migration_is_idempotent(tmp_path):
     second = migrations.run(engine)
 
     assert second["account_column"] is False
+
+
+def test_migration_creates_the_user_date_index(tmp_path):
+    engine = _v2_engine(tmp_path / "v2.db")
+
+    report = migrations.run(engine)
+
+    assert report["user_date_index"] is True
+    assert "ix_transactions_user_date" in _index_names(engine, "transactions")
+
+
+def test_user_date_index_migration_is_idempotent(tmp_path):
+    engine = _v2_engine(tmp_path / "v2.db")
+    migrations.run(engine)
+
+    second = migrations.run(engine)
+
+    assert second["user_date_index"] is False
+
+
+def test_fresh_database_has_the_user_date_index(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}", future=True)
+
+    report = migrations.run(engine)
+
+    assert report["user_date_index"] is False
+    assert "ix_transactions_user_date" in _index_names(engine, "transactions")
 
 
 def test_migrated_transaction_amounts_are_rounded_half_up(tmp_path):
@@ -169,6 +200,7 @@ def test_second_run_is_a_noop(tmp_path):
         "scoped_budgets": False,
         "scoped_categories": False,
         "scoped_accounts": False,
+        "user_date_index": False,
         "claimed": {},
         "categories": 0,
         "accounts": 0,

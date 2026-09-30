@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from datetime import date as dt_date
 
-from sqlalchemy import Boolean, Column, Date, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import validates
 
 from database import Base
@@ -188,6 +188,10 @@ class Transaction(Base):
     """
 
     __tablename__ = "transactions"
+
+    __table_args__ = (
+        Index("ix_transactions_user_date", "user_id", "date"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     amount_cents = Column(Integer, nullable=False)

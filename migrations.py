@@ -29,7 +29,7 @@ from models import (
 
 log = logging.getLogger("finlify.migrations")
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 DEFAULT_ACCOUNT = ("Main", "checking")
 
@@ -211,6 +211,33 @@ ACCOUNTS_DDL = """
             CONSTRAINT uq_accounts_user_name UNIQUE (user_id, name)
         )
         """
+
+
+def _add_user_date_index(conn) -> bool:
+    """Create the ``(user_id, date)`` index the ledger query relies on.
+
+    ``create_all`` skips tables that already exist, so an upgrade would never
+    gain the index declared on the model. This adds it explicitly. Older
+    databases also lack a ``user_id`` column, in which case the later user-scope
+    migration and the next boot handle it.
+
+    Returns:
+        ``True`` if the index was created, ``False`` if it already existed or the
+        table or column was absent.
+    """
+    if not _has_table(conn, "transactions"):
+        return False
+    if "user_id" not in _columns(conn, "transactions"):
+        return False
+    rows = conn.execute(text("PRAGMA index_list('transactions')")).fetchall()
+    if "ix_transactions_user_date" in {row[1] for row in rows}:
+        return False
+    log.info("creating ix_transactions_user_date index")
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_transactions_user_date "
+        "ON transactions (user_id, date)"
+    ))
+    return True
 
 
 def _scope_budgets(conn) -> bool:
@@ -542,6 +569,7 @@ def run(engine) -> dict:
         "scoped_budgets": False,
         "scoped_categories": False,
         "scoped_accounts": False,
+        "user_date_index": False,
         "claimed": {},
         "categories": 0,
         "accounts": 0,
@@ -558,6 +586,7 @@ def run(engine) -> dict:
         report["scoped_budgets"] = _scope_budgets(conn)
         report["scoped_categories"] = _scope_categories(conn)
         report["scoped_accounts"] = _scope_accounts(conn)
+        report["user_date_index"] = _add_user_date_index(conn)
 
     Base.metadata.create_all(bind=engine)
 
