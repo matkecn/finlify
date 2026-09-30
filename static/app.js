@@ -419,6 +419,30 @@
     el.textContent = arrow + " " + Math.abs(value).toFixed(1) + "%";
   }
 
+  /**
+   * Render a change in a percentage rate as percentage points.
+   *
+   * A rate moving from 10% to 20% is a gain of ten points, not a gain of one
+   * hundred percent, so this deliberately does not reuse {@link setDelta}, which
+   * reports a relative change.
+   *
+   * @param {HTMLElement} el The badge element.
+   * @param {number|null} value Signed change in percentage points, or null when
+   *   there is no prior month to compare against.
+   */
+  function setRateDelta(el, value) {
+    if (!el) return;
+    if (value === null || value === undefined || !isFinite(value)) {
+      el.className = "delta flat";
+      el.textContent = "no prior month";
+      return;
+    }
+    var flat = Math.abs(value) < 0.05;
+    var up = value > 0;
+    el.className = "delta " + (flat ? "flat" : up ? "up" : "down");
+    el.textContent = (flat ? "→ " : up ? "▲ " : "▼ ") + Math.abs(value).toFixed(1) + " pts";
+  }
+
   /** Reveal panels with a staggered fade as they scroll into view. */
   function observeReveals() {
     var targets = document.querySelectorAll(".stat, .panel");
@@ -567,6 +591,11 @@
 
     setDelta($("statIncomeDelta"), data.month.income_delta, false);
     setDelta($("statExpensesDelta"), data.month.expenses_delta, true);
+
+    var hasPriorMonth = data.month.savings_rate !== 0 || data.month.prev_savings_rate !== 0;
+    setRateDelta($("statSavingsDelta"), hasPriorMonth
+      ? data.month.savings_rate - data.month.prev_savings_rate
+      : null);
 
     var bd = $("statBalanceDelta");
     bd.className = "delta " + (data.month.net >= 0 ? "up" : "down");

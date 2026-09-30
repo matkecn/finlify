@@ -821,6 +821,9 @@ def build_summary(db: Session, user_id: int) -> dict:
     month_savings_rate = (
         round((month_income - month_expenses) / month_income * 100, 2) if month_income else 0.0
     )
+    prev_month_savings_rate = (
+        round((prev_income - prev_expenses) / prev_income * 100, 2) if prev_income else 0.0
+    )
 
     largest = (
         db.query(Transaction)
@@ -875,6 +878,7 @@ def build_summary(db: Session, user_id: int) -> dict:
             "expenses_cents": month_expenses,
             "net": from_cents(month_income - month_expenses),
             "savings_rate": month_savings_rate,
+            "prev_savings_rate": prev_month_savings_rate,
             "avg_daily_spend": from_cents(round(month_expenses / elapsed)),
             "projected_expenses": from_cents(projected),
             "days_elapsed": elapsed,

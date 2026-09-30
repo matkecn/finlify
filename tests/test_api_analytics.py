@@ -115,6 +115,24 @@ def test_projected_and_average_spend_are_consistent(client):
     assert month["avg_daily_spend"] == expected_daily
 
 
+def test_month_savings_rate_tracks_the_previous_month(client):
+    add(client, "100.00", kind="income", category="Salary", when=prev_month_iso())
+    add(client, "80.00", category="Groceries", when=prev_month_iso())
+    add(client, "100.00", kind="income", category="Salary", when=this_month_iso())
+    add(client, "40.00", category="Groceries", when=this_month_iso())
+
+    month = client.get("/api/summary").json()["month"]
+    assert month["prev_savings_rate"] == 20.0
+    assert month["savings_rate"] == 60.0
+
+
+def test_month_savings_rate_is_zero_without_any_income(client):
+    add(client, "10.00", category="Groceries")
+    month = client.get("/api/summary").json()["month"]
+    assert month["savings_rate"] == 0.0
+    assert month["prev_savings_rate"] == 0.0
+
+
 def test_largest_expense(client):
     add(client, "5.00", category="Groceries")
     add(client, "50.00", category="Dining")
