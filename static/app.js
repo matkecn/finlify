@@ -1515,6 +1515,9 @@
    */
   function openModal(transaction) {
     $("modalBackdrop").hidden = false;
+    // A previous save leaves the button disabled until it is re-enabled here;
+    // form.reset() does not restore it.
+    $("txSubmit").disabled = false;
 
     if (transaction) {
       state.editingId = transaction.id;
@@ -1551,6 +1554,32 @@
     state.editingId = null;
     $("modalTitle").textContent = "New transaction";
     $("txSubmit").textContent = "Save transaction";
+    $("txSubmit").disabled = false;
+  }
+
+  /**
+   * Close a dialog when its scrim is pressed, but not when a selection drag
+   * inside the dialog happens to end over the scrim.
+   *
+   * A click event is dispatched on the nearest common ancestor of where the
+   * press began and where it ended. Dragging a text selection out of an input
+   * and releasing the mouse on the scrim therefore produced a click whose target
+   * was the scrim itself, dismissing the dialog mid-edit. Tying the decision to
+   * the element the press started on leaves those drags alone while a genuine
+   * press on the scrim still closes the dialog.
+   *
+   * @param {HTMLElement} backdrop The scrim element.
+   * @param {function(): void} close Dismisses the dialog.
+   */
+  function bindScrimClose(backdrop, close) {
+    var pressedOnScrim = false;
+    backdrop.addEventListener("pointerdown", function (e) {
+      pressedOnScrim = e.target === backdrop;
+    });
+    backdrop.addEventListener("click", function (e) {
+      if (pressedOnScrim && e.target === backdrop) close();
+      pressedOnScrim = false;
+    });
   }
 
   /**
@@ -1721,9 +1750,7 @@
     $("openModal").addEventListener("click", function () { openModal(); });
     $("closeModal").addEventListener("click", closeModal);
     $("cancelModal").addEventListener("click", closeModal);
-    $("modalBackdrop").addEventListener("click", function (e) {
-      if (e.target === $("modalBackdrop")) closeModal();
-    });
+    bindScrimClose($("modalBackdrop"), closeModal);
     $("txForm").addEventListener("submit", submitTransaction);
     $("budgetForm").addEventListener("submit", submitBudget);
     $("categoryForm").addEventListener("submit", createCategory);
@@ -1739,9 +1766,7 @@
     });
     $("openSettings").addEventListener("click", openSettings);
     $("closeSettings").addEventListener("click", closeSettings);
-    $("settingsBackdrop").addEventListener("click", function (e) {
-      if (e.target === $("settingsBackdrop")) closeSettings();
-    });
+    bindScrimClose($("settingsBackdrop"), closeSettings);
     $("savePreferences").addEventListener("click", savePreferences);
     $("passwordForm").addEventListener("submit", function (e) {
       e.preventDefault();
