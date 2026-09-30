@@ -37,6 +37,7 @@ from models import (
     Category,
     Transaction,
     User,
+    normalize_color,
     normalize_label,
 )
 from money import MoneyError, from_cents, parse_signed_cents, to_cents, to_signed_cents
@@ -427,15 +428,8 @@ class CategoryIn(BaseModel):
     @field_validator("color")
     @classmethod
     def _valid_color(cls, v: str | None) -> str | None:
-        """Require a six digit hex colour, or allow ``None`` for a default."""
-        if v is None:
-            return None
-        value = v.strip().lower()
-        if len(value) == 7 and value.startswith("#") and all(
-            c in "0123456789abcdef" for c in value[1:]
-        ):
-            return value
-        raise ValueError("color must be a hex value like #5eead4")
+        """Require a hex colour, or allow ``None`` for a default."""
+        return normalize_color(v)
 
 
 class CategoryPatch(BaseModel):
@@ -460,15 +454,8 @@ class CategoryPatch(BaseModel):
     @field_validator("color")
     @classmethod
     def _valid_color(cls, v: str | None) -> str | None:
-        """Require a six digit hex colour, or allow ``None`` to leave it alone."""
-        if v is None:
-            return None
-        value = v.strip().lower()
-        if len(value) == 7 and value.startswith("#") and all(
-            c in "0123456789abcdef" for c in value[1:]
-        ):
-            return value
-        raise ValueError("color must be a hex value like #5eead4")
+        """Require a hex colour, or allow ``None`` to leave it alone."""
+        return normalize_color(v)
 
 
 class AccountIn(BaseModel):
@@ -496,15 +483,8 @@ class AccountIn(BaseModel):
     @field_validator("color")
     @classmethod
     def _valid_color(cls, v: str | None) -> str | None:
-        """Require a six digit hex colour, or allow ``None`` for a default."""
-        if v is None:
-            return None
-        value = v.strip().lower()
-        if len(value) == 7 and value.startswith("#") and all(
-            c in "0123456789abcdef" for c in value[1:]
-        ):
-            return value
-        raise ValueError("color must be a hex value like #5eead4")
+        """Require a hex colour, or allow ``None`` for a default."""
+        return normalize_color(v)
 
     @field_validator("opening_balance")
     @classmethod
@@ -538,15 +518,8 @@ class AccountPatch(BaseModel):
     @field_validator("color")
     @classmethod
     def _valid_color(cls, v: str | None) -> str | None:
-        """Require a six digit hex colour, or allow ``None`` to leave it alone."""
-        if v is None:
-            return None
-        value = v.strip().lower()
-        if len(value) == 7 and value.startswith("#") and all(
-            c in "0123456789abcdef" for c in value[1:]
-        ):
-            return value
-        raise ValueError("color must be a hex value like #5eead4")
+        """Require a hex colour, or allow ``None`` to leave it alone."""
+        return normalize_color(v)
 
     @field_validator("opening_balance")
     @classmethod
@@ -1579,6 +1552,10 @@ def import_data(
     references an unknown category or account, or carries an unusable amount is
     also skipped and counted, rather than aborting the whole import.
 
+    A colour that is not a hex value is not grounds for skipping: the row is
+    kept and given a palette colour, because losing a whole category over a
+    cosmetic field would cost the user real history.
+
     Every row is written against the signed-in user, so importing can never
     merge another person's ledger into this one, and replace mode only clears
     the signed-in user's own data.
@@ -1621,7 +1598,7 @@ def import_data(
         db.add(Account(
             name=name,
             kind=kind if kind in ACCOUNT_KINDS else "checking",
-            color=item.get("color") or colour_for(order),
+            color=normalize_color(item.get("color"), colour_for(order)),
             opening_balance_cents=opening,
             is_archived=bool(item.get("is_archived", False)),
             sort_order=sort_order,
@@ -1660,7 +1637,7 @@ def import_data(
         db.add(Category(
             name=name,
             kind=kind if kind in CATEGORY_KINDS else "expense",
-            color=item.get("color") or colour_for(order),
+            color=normalize_color(item.get("color"), colour_for(order)),
             is_archived=bool(item.get("is_archived", False)),
             sort_order=sort_order,
             user_id=user.id,

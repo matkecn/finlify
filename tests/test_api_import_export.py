@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from conftest import ADMIN_USERNAME
+from models import CATEGORY_PALETTE
 
 
 def add(client, amount, kind="expense", category="Groceries", date="2026-09-30"):
@@ -213,3 +214,69 @@ def test_export_import_round_trip_is_lossless(client):
     assert summary["expenses_cents"] == 1999
     budgets = client.get("/api/budgets").json()["budgets"]
     assert budgets[0]["limit_cents"] == 5000
+
+
+def test_import_keeps_category_with_unusable_colour(client):
+    payload = {
+        "replace": False,
+        "categories": [
+            {"name": "Gold", "kind": "expense", "color": '"><script>alert(1)</script>'}
+        ],
+        "transactions": [],
+        "budgets": [],
+    }
+    stats = client.post("/api/import", json=payload).json()
+    assert stats["categories"] == 1
+    assert stats["skipped"] == 0
+    gold = next(
+        c for c in client.get("/api/categories").json()["categories"] if c["name"] == "Gold"
+    )
+    assert gold["color"] in CATEGORY_PALETTE
+
+
+def test_import_keeps_account_with_unusable_colour(client):
+    payload = {
+        "replace": False,
+        "categories": [],
+        "accounts": [
+            {"name": "Vault", "kind": "checking", "color": "teal;}</style><img src=x>"}
+        ],
+        "transactions": [],
+        "budgets": [],
+    }
+    stats = client.post("/api/import", json=payload).json()
+    assert stats["accounts"] == 1
+    vault = next(
+        a for a in client.get("/api/accounts").json()["accounts"] if a["name"] == "Vault"
+    )
+    assert vault["color"] in CATEGORY_PALETTE
+
+
+def test_import_expands_shorthand_colour(client):
+    payload = {
+        "replace": False,
+        "categories": [{"name": "Gold", "kind": "expense", "color": "#abc"}],
+        "transactions": [],
+        "budgets": [],
+    }
+    client.post("/api/import", json=payload)
+    gold = next(
+        c for c in client.get("/api/categories").json()["categories"] if c["name"] == "Gold"
+    )
+    assert gold["color"] == "#aabbcc"
+
+
+def test_import_does_not_echo_hostile_colour_on_export(client):
+    payload = {
+        "replace": False,
+        "categories": [
+            {"name": "Gold", "kind": "expense", "color": "#000\"><script>alert(1)</script>"}
+        ],
+        "transactions": [],
+        "budgets": [],
+    }
+    client.post("/api/import", json=payload)
+    exported = client.get("/api/export").json()
+    gold = next(c for c in exported["categories"] if c["name"] == "Gold")
+    assert "<script>" not in gold["color"]
+    assert gold["color"] in CATEGORY_PALETTE

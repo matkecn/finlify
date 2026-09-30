@@ -37,6 +37,7 @@
 
   var started = false;
   var charts = {};
+  var chartsReady = true;
   var $ = function (id) { return document.getElementById(id); };
 
   var ICON_EDIT =
@@ -358,6 +359,17 @@
   }
 
   /**
+   * Report a non-fatal failure to the user and to the console.
+   *
+   * @param {string} message What went wrong, in the user's terms.
+   * @param {Error} [err] The underlying error, logged for diagnosis.
+   */
+  function logError(message, err) {
+    if (err) console.error(message, err);
+    toast(message, "error");
+  }
+
+  /**
    * Show a transient notification.
    *
    * @param {string} message The message text.
@@ -495,13 +507,26 @@
   }
 
   /**
+   * Whether the canvas charts are usable.
+   *
+   * Charts are the one part of the interface that can fail to construct, so the
+   * renderers that touch them check this and skip. The tables, totals, and forms
+   * around them carry on working.
+   *
+   * @returns {boolean} True when the charts were built successfully.
+   */
+  function hasCharts() {
+    return chartsReady && !!charts.cashflow;
+  }
+
+  /**
    * Repaint every chart after the theme changed under it.
    *
    * Series colours come from theme tokens, so they are re-read here and pushed
    * into the existing charts rather than rebuilding them.
    */
   function repaintCharts() {
-    if (!state.seriesColours) return;
+    if (!hasCharts() || !state.seriesColours) return;
     var series = state.seriesColours;
     series.income = FX.token("--series-1", series.income);
     series.violet = FX.token("--series-2", series.violet);
@@ -533,7 +558,7 @@
       '<div class="tip-row"><span class="tip-key">Income</span><strong>' + FX.money(item.income) + "</strong></div>" +
       '<div class="tip-row"><span class="tip-key">Expenses</span><strong>' + FX.money(item.expenses) + "</strong></div>" +
       '<div class="tip-row"><span class="tip-key">Net</span><span class="tip-val ' + (net >= 0 ? "up" : "down") + '">' + FX.signed(net) + "</span></div>";
-    if (charts.cashflow.hoverIndex >= 0 && charts.cashflow.data[charts.cashflow.hoverIndex] === item) {
+    if (hasCharts() && charts.cashflow.hoverIndex >= 0 && charts.cashflow.data[charts.cashflow.hoverIndex] === item) {
       var padL = 54, padR = 14;
       var plotW = Math.max(10, charts.cashflow.w - padL - padR);
       var n = charts.cashflow.data.length;
@@ -557,7 +582,7 @@
       FX.date(item.date, { day: "numeric", month: "short", year: "numeric" }) + "</span></div>" +
       '<div class="tip-row"><span class="tip-key">Net</span><span class="tip-val ' +
       (item.net >= 0 ? "up" : "down") + '">' + FX.signed(item.net) + "</span></div>";
-    if (charts.daily.hoverIndex >= 0) {
+    if (hasCharts() && charts.daily.hoverIndex >= 0) {
       tip.style.left = FX.clamp(
         charts.daily.w * ((charts.daily.hoverIndex + 0.5) / charts.daily.data.length),
         80, charts.daily.w - 80
@@ -640,14 +665,16 @@
    * @param {Array<Object>} series Monthly buckets from the timeseries endpoint.
    */
   function renderSeries(series) {
-    charts.cashflow.opts.hidden = state.hiddenSeries;
-    charts.cashflow.setData(series);
-    charts.sparks.balance.setData(series.map(function (s) { return s.net; }));
-    charts.sparks.income.setData(series.map(function (s) { return s.income; }));
-    charts.sparks.expenses.setData(series.map(function (s) { return s.expenses; }));
-    charts.sparks.savings.setData(series.map(function (s) {
-      return s.income ? (s.net / s.income) * 100 : 0;
-    }));
+    if (hasCharts()) {
+      charts.cashflow.opts.hidden = state.hiddenSeries;
+      charts.cashflow.setData(series);
+      charts.sparks.balance.setData(series.map(function (s) { return s.net; }));
+      charts.sparks.income.setData(series.map(function (s) { return s.income; }));
+      charts.sparks.expenses.setData(series.map(function (s) { return s.expenses; }));
+      charts.sparks.savings.setData(series.map(function (s) {
+        return s.income ? (s.net / s.income) * 100 : 0;
+      }));
+    }
     $("cashflowSub").textContent = "Income vs expenses · last " + series.length + " months";
   }
 
@@ -657,7 +684,7 @@
    * @param {Array<Object>} categories Per category totals and shares.
    */
   function renderBreakdown(categories) {
-    charts.category.setData(categories);
+    if (hasCharts()) charts.category.setData(categories);
     var legend = $("categoryLegend");
     legend.innerHTML = "";
 
@@ -668,16 +695,32 @@
     }
 
     categories.forEach(function (c) {
+      var color = FX.safeColor(c.color, "#5eead4");
       var li = document.createElement("li");
       li.className = "legend-item";
       li.dataset.category = c.category;
-      li.style.setProperty("--accent", c.color);
-      li.innerHTML =
-        '<span class="legend-dot" style="background:' + c.color + '"></span>' +
-        '<span class="legend-name"></span>' +
-        '<span class="legend-value">' + FX.money(c.total) + "</span>" +
-        '<span class="legend-pct">' + c.pct.toFixed(1) + "%</span>";
-      li.querySelector(".legend-name").textContent = c.category;
+      li.style.setProperty("--accent", color);
+
+      var dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = color;
+
+      var name = document.createElement("span");
+      name.className = "legend-name";
+      name.textContent = c.category;
+
+      var value = document.createElement("span");
+      value.className = "legend-value";
+      value.textContent = FX.money(c.total);
+
+      var pct = document.createElement("span");
+      pct.className = "legend-pct";
+      pct.textContent = c.pct.toFixed(1) + "%";
+
+      li.appendChild(dot);
+      li.appendChild(name);
+      li.appendChild(value);
+      li.appendChild(pct);
       legend.appendChild(li);
     });
 
@@ -692,7 +735,7 @@
    * @param {Array<Object>} series Daily buckets from the daily endpoint.
    */
   function renderDaily(series) {
-    charts.daily.setData(series);
+    if (hasCharts()) charts.daily.setData(series);
     var avg = series.reduce(function (s, d) { return s + d.net; }, 0) / (series.length || 1);
     $("pulseAvg").textContent = FX.signed(avg);
     var peak = series.reduce(function (best, d) {
@@ -727,7 +770,7 @@
       name.className = "budget-name";
       var dot = document.createElement("span");
       dot.className = "legend-dot";
-      dot.style.background = b.color;
+      dot.style.background = FX.safeColor(b.color, "#5eead4");
       var nameText = document.createElement("span");
       nameText.textContent = b.category;
       name.appendChild(dot);
@@ -985,7 +1028,7 @@
 
           var dot = document.createElement("span");
           dot.className = "legend-dot";
-          dot.style.background = c.color;
+          dot.style.background = FX.safeColor(c.color, "#5eead4");
 
           var label = document.createElement("span");
           label.className = "cat-name";
@@ -1041,7 +1084,7 @@
     accounts.forEach(function (a) {
       var li = document.createElement("li");
       li.className = "account-card" + (a.is_archived ? " is-archived" : "");
-      li.style.setProperty("--c", a.color || "#5eead4");
+      li.style.setProperty("--c", FX.safeColor(a.color, "#5eead4"));
 
       var top = document.createElement("div");
       top.className = "account-top";
@@ -1605,6 +1648,7 @@
         if (idx === -1) state.hiddenSeries.push(key);
         else state.hiddenSeries.splice(idx, 1);
         chip.classList.toggle("is-active", idx !== -1);
+        if (!hasCharts()) return;
         charts.cashflow.opts.hidden = state.hiddenSeries;
         charts.cashflow.draw();
       });
@@ -1637,9 +1681,36 @@
       loadAll();
       return;
     }
-    started = true;
 
-    initCharts();
+    // `started` is set after the bindings so it means "fully initialised". It
+    // used to be set first, which meant a throw partway through left the flag on
+    // and every later attempt skipped the work that had not run yet: the page
+    // stayed permanently inert. The chart construction that used to throw is now
+    // contained inside bindInterface, but the ordering keeps the flag honest.
+    bindInterface();
+    started = true;
+    loadAll();
+  }
+
+  /**
+   * Bind every event listener and construct the charts.
+   *
+   * Split out from {@link init} so that a chart that cannot be constructed costs
+   * only the charts, rather than taking the whole interface down with it.
+   */
+  function bindInterface() {
+    try {
+      initCharts();
+    } catch (err) {
+      // The rest of the dashboard still works without the canvas charts, so
+      // report and carry on rather than leaving a blank page behind.
+      // initCharts may have populated some charts before failing, so discard
+      // them: a half-built chart would break the renderers that follow.
+      logError("Charts could not be drawn", err);
+      charts = {};
+      chartsReady = false;
+    }
+
     auth.onThemeChanged(repaintCharts);
     auth.onCurrencyChanged(repaintCharts);
     bindFilters();
@@ -1698,8 +1769,6 @@
       else if (!$("modalBackdrop").hidden) closeModal();
       else if (!$("userPop").hidden) closeUserPop();
     });
-
-    loadAll();
   }
 
   /**

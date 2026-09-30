@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from models import Budget, Category, Transaction
+from models import Budget, Category, Transaction, normalize_color
 
 
 @pytest.mark.parametrize(
@@ -113,3 +113,46 @@ def test_category_to_dict_shape():
 def test_budget_to_dict_carries_exact_cents():
     row = Budget(id=1, category="Coffee", limit_cents=2000)
     assert row.to_dict() == {"id": 1, "category": "Coffee", "limit": 20.0, "limit_cents": 2000}
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("#5eead4", "#5eead4"),
+        ("#5EEAD4", "#5eead4"),
+        ("  #5eead4  ", "#5eead4"),
+        ("#abc", "#aabbcc"),
+        ("#0AF", "#00aaff"),
+    ],
+)
+def test_normalize_color_accepts_hex(raw, expected):
+    assert normalize_color(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "teal",
+        "red;}</style><img src=x onerror=alert(1)>",
+        '#000"><script>alert(1)</script>',
+        "#abc;background:url(javascript:alert(1))",
+        "#zzzzzz",
+        "#12345",
+        "#1234567",
+        "",
+        "   ",
+    ],
+)
+def test_normalize_color_rejects_non_hex(raw):
+    with pytest.raises(ValueError):
+        normalize_color(raw)
+
+
+def test_normalize_color_passes_none_through():
+    assert normalize_color(None) is None
+
+
+def test_normalize_color_substitutes_fallback_for_bad_value():
+    assert normalize_color("teal", "#5eead4") == "#5eead4"
+    assert normalize_color("#5eead4", "#000000") == "#5eead4"
+    assert normalize_color(None, "#5eead4") == "#5eead4"

@@ -6,6 +6,9 @@ represent 0.10 or 19.99 exactly, and repeated sums drift. Floats appear only in
 :meth:`Transaction.to_dict` output, for JSON display.
 """
 
+from __future__ import annotations
+
+import re
 from datetime import date as dt_date
 
 from sqlalchemy import Boolean, Column, Date, Integer, String, UniqueConstraint
@@ -26,6 +29,44 @@ CATEGORY_PALETTE = (
     "#5eead4", "#a78bfa", "#f0abfc", "#bef264", "#fbbf24", "#fb7185",
     "#60a5fa", "#2dd4bf", "#c084fc", "#fde047", "#4ade80", "#fb923c",
 )
+
+HEX_COLOR = re.compile(r"^#(?:[0-9a-f]{3}|[0-9a-f]{6})$")
+
+
+def normalize_color(value: str | None, fallback: str | None = None) -> str | None:
+    """Normalise a user-supplied hex colour, or return ``fallback``.
+
+    Colour is the one field that is interpolated into page markup and into
+    canvas gradients, so it is validated on every write path rather than at the
+    few entry points a human uses. Only a three or six digit hex value prefixed
+    with ``#`` is accepted: a CSS colour name, a length, or a value carrying
+    quote characters could otherwise break out of the ``style`` attribute it is
+    written into.
+
+    Args:
+        value: The untrusted colour, or ``None`` when one was not supplied.
+        fallback: Returned when ``value`` is missing or not a hex colour. Pass
+            ``None`` to reject instead, which is what the request validators do
+            so a bad colour becomes a 422 rather than a silent substitution.
+
+    Returns:
+        The lowercased ``#rrggbb`` colour, or ``fallback``.
+
+    Raises:
+        ValueError: If ``value`` is not a hex colour and ``fallback`` is None.
+    """
+    if value is None:
+        return fallback
+    text = str(value).strip().lower()
+    if HEX_COLOR.match(text):
+        # Expand the shorthand so stored colours are always six digits, which is
+        # what the canvas gradients and the colour input both expect.
+        if len(text) == 4:
+            return "#" + text[1] * 2 + text[2] * 2 + text[3] * 2
+        return text
+    if fallback is not None:
+        return fallback
+    raise ValueError("color must be a hex value like #5eead4")
 
 
 def normalize_label(value: str) -> str:

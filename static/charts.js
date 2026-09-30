@@ -101,6 +101,11 @@
    */
   var FX = {
     money: function (n) { return currency.format(Number(n) || 0); },
+    safeColor: function (value, fallback) {
+      var fb = fallback || "#5eead4";
+      var text = String(value === undefined || value === null ? "" : value).trim();
+      return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(text) ? text.toLowerCase() : fb;
+    },
     compact: function (n) {
       var v = Number(n) || 0;
       var abs = Math.abs(v);
@@ -153,15 +158,48 @@
    */
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 
+  var FALLBACK_PALETTE = [
+    "#5eead4", "#a78bfa", "#f0abfc", "#bef264", "#fbbf24", "#fb7185",
+    "#60a5fa", "#2dd4bf", "#c084fc", "#fde047", "#4ade80", "#fb923c"
+  ];
+
+  /**
+   * Pick a stable palette colour for a label.
+   *
+   * Used only when a stored colour is unusable, so the slice still gets a
+   * distinct colour rather than defaulting every bad row to the same one. The
+   * hash is over the label, so a category keeps the same colour between
+   * renders and between reloads.
+   *
+   * @param {string} label Typically the category name.
+   * @param {number} [index] Position in the series, mixed into the hash.
+   * @returns {string} A hex colour from the fallback palette.
+   */
+  function colourFor(label, index) {
+    var text = String(label === undefined || label === null ? "" : label);
+    var h = (index || 0) >>> 0;
+    for (var i = 0; i < text.length; i++) {
+      h = (h * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return FALLBACK_PALETTE[h % FALLBACK_PALETTE.length];
+  }
+
   /**
    * Expand a hex colour to an rgba() string.
    *
+   * The value is validated first. A colour that is not hex would otherwise make
+   * `parseInt` return NaN, and passing an "rgba(NaN,NaN,NaN,a)" string to
+   * `addColorStop` throws a DOMException from inside the animation frame, which
+   * leaves the chart half drawn and kills the rest of the frame's work.
+   *
    * @param {string} hex A three or six digit hex colour such as "#0af".
    * @param {number} alpha Opacity in the range 0 to 1.
+   * @param {string} [fallback] Used when `hex` is not a hex colour.
    * @returns {string} The colour as an rgba() CSS string.
    */
-  function hexToRgba(hex, alpha) {
-    var h = hex.replace("#", "");
+  function hexToRgba(hex, alpha, fallback) {
+    var safe = FX.safeColor(hex, fallback);
+    var h = safe.slice(1);
     if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
     var num = parseInt(h, 16);
     return "rgba(" + ((num >> 16) & 255) + "," + ((num >> 8) & 255) + "," + (num & 255) + "," + alpha + ")";
@@ -358,8 +396,8 @@
     var plotH = Math.max(10, h - padT - padB);
 
     var series = [
-      { key: "income", color: this.opts.incomeColor || "#22d3ee", label: "Income", on: true },
-      { key: "expenses", color: this.opts.expenseColor || "#f472b6", label: "Expenses", on: true },
+      { key: "income", color: FX.safeColor(this.opts.incomeColor, "#22d3ee"), label: "Income", on: true },
+      { key: "expenses", color: FX.safeColor(this.opts.expenseColor, "#f472b6"), label: "Expenses", on: true },
     ];
     if (this.opts.hidden) {
       series.forEach(function (s) { s.on = this.opts.hidden.indexOf(s.key) === -1; }, this);
@@ -538,6 +576,7 @@
 
       var isHover = this.hoverIndex === i;
       var r = outer + (isHover ? 5 : 0);
+      var sliceColor = FX.safeColor(d.color, colourFor(d.category, i));
       this.slices.push({ a0: a0, a1: a1, index: i, category: d.category });
 
       ctx.save();
@@ -546,11 +585,11 @@
       ctx.arc(cx, cy, inner, a0 + shownSweep, a0, true);
       ctx.closePath();
       var grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-      grad.addColorStop(0, hexToRgba(d.color, isHover ? 1 : 0.92));
-      grad.addColorStop(1, hexToRgba(d.color, isHover ? 0.85 : 0.62));
+      grad.addColorStop(0, hexToRgba(sliceColor, isHover ? 1 : 0.92));
+      grad.addColorStop(1, hexToRgba(sliceColor, isHover ? 0.85 : 0.62));
       ctx.fillStyle = grad;
       if (isHover) {
-        ctx.shadowColor = hexToRgba(d.color, 0.8);
+        ctx.shadowColor = hexToRgba(sliceColor, 0.8);
         ctx.shadowBlur = 9;
       }
       ctx.fill();
@@ -769,7 +808,7 @@
     ctx.clearRect(0, 0, w, h);
     if (data.length < 2) return;
 
-    var color = this.opts.color || "#22d3ee";
+    var color = FX.safeColor(this.opts.color, "#22d3ee");
     var max = Math.max.apply(null, data);
     var min = Math.min.apply(null, data);
     var span = max - min || 1;
