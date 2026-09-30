@@ -175,11 +175,11 @@
       <p class="hero-sub" id="heroSub">Loading…</p>
     </div>
     <div class="hero-controls">
-      <span class="hero-label">Time range</span>
-      <div class="segmented" role="group" aria-label="Time range">
-        <button class="seg is-active" data-months="3">3M</button>
-        <button class="seg" data-months="6">6M</button>
-        <button class="seg" data-months="12">12M</button>
+      <span class="hero-label" id="rangeLabel">Time range</span>
+      <div class="segmented" role="group" aria-labelledby="rangeLabel">
+        <button class="seg is-active" type="button" data-months="3" aria-pressed="true">3M</button>
+        <button class="seg" type="button" data-months="6" aria-pressed="false">6M</button>
+        <button class="seg" type="button" data-months="12" aria-pressed="false">12M</button>
       </div>
     </div>
   </section>

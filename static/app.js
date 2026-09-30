@@ -1557,8 +1557,12 @@
     var segs = document.querySelectorAll(".hero-controls .seg");
     Array.prototype.forEach.call(segs, function (seg) {
       seg.addEventListener("click", function () {
-        Array.prototype.forEach.call(segs, function (s) { s.classList.remove("is-active"); });
+        Array.prototype.forEach.call(segs, function (s) {
+          s.classList.remove("is-active");
+          s.setAttribute("aria-pressed", "false");
+        });
         seg.classList.add("is-active");
+        seg.setAttribute("aria-pressed", "true");
         state.months = Number(seg.dataset.months);
         loadAll();
       });
