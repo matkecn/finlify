@@ -7,6 +7,9 @@
  *
  * All rendered figures come from the server, which owns the authoritative
  * integer cent arithmetic. This file formats them for display only.
+ *
+ * The dashboard is only started once `auth.js` reports a signed-in user, so
+ * every request below already carries a session.
  */
 
 (function () {
@@ -14,8 +17,10 @@
 
   var FX = window.FX;
   var C = window.FinlifyCharts;
+  var auth = window.FinlifyAuth;
 
   var state = {
+    user: null,
     months: 6,
     hiddenSeries: [],
     breakdownType: "expense",
@@ -29,6 +34,7 @@
     filters: { search: "", type: "", category: "", account: "", sort: "date", order: "desc" },
   };
 
+  var started = false;
   var charts = {};
   var $ = function (id) { return document.getElementById(id); };
 
@@ -45,24 +51,15 @@
   /**
    * Perform a JSON request and reject with the server's error detail on failure.
    *
+   * Session expiry is handled centrally by the gate, which is also why every
+   * 401 shows the sign-in screen instead of a dashboard full of errors.
+   *
    * @param {string} path Request path, including any query string.
    * @param {RequestInit} [options] Fetch options such as method and body.
    * @returns {Promise<Object>} The parsed response body.
    */
   function api(path, options) {
-    return fetch(path, options).then(function (res) {
-      var isJson = (res.headers.get("content-type") || "").indexOf("application/json") !== -1;
-      return (isJson ? res.json() : res.text()).then(function (body) {
-        if (!res.ok) {
-          var msg = "Request failed (" + res.status + ")";
-          if (body && typeof body === "object" && body.detail) {
-            msg = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-          }
-          throw new Error(msg);
-        }
-        return body;
-      });
-    });
+    return auth.request(path, options);
   }
 
   /**
@@ -1298,6 +1295,12 @@
 
   /** Initialise charts, listeners, and the first data load. */
   function init() {
+    if (started) {
+      loadAll();
+      return;
+    }
+    started = true;
+
     initCharts();
     bindFilters();
     bindRanges();
@@ -1329,6 +1332,24 @@
     loadAll();
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
+  /**
+   * Start the dashboard for a signed-in user.
+   *
+   * Called by the sign-in gate, so a user who signs out and back in gets the
+   * same live dashboard rather than a second copy of its listeners.
+   *
+   * @param {Object} user The signed-in user record.
+   */
+  function start(user) {
+    state.user = user;
+    init();
+  }
+
+  window.FinlifyDashboard = { start: start };
+
+  auth.onSessionLost(function () {
+    if (started) setStatus("is-error", "signed out");
+  });
+
+  auth.boot();
 })();

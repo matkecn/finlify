@@ -30,18 +30,46 @@
   var reduceMotion = prefersReducedMotion();
 
   /**
-   * Locale aware euro formatter, falling back to a plain string when the Intl
-   * API is unavailable.
+   * Report the symbol a currency is written with in this locale.
+   *
+   * @param {string} code An ISO 4217 code such as "EUR".
+   * @returns {string} The locale's symbol, or the code when Intl cannot help.
    */
-  var currency = (function () {
+  function symbolFor(code) {
+    try {
+      var parts = new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: code,
+        currencyDisplay: "narrowSymbol",
+      }).formatToParts(0);
+      for (var i = 0; i < parts.length; i += 1) {
+        if (parts[i].type === "currency") return parts[i].value;
+      }
+    } catch (e) {
+      return code;
+    }
+    return code;
+  }
+
+  /**
+   * Build a currency formatter for one code, degrading to plain text.
+   *
+   * @param {string} code An ISO 4217 currency code.
+   * @returns {Object} An object with a format method.
+   */
+  function makeCurrency(code) {
     try {
       return new Intl.NumberFormat(undefined, {
-        style: "currency", currency: "EUR", maximumFractionDigits: 2,
+        style: "currency", currency: code, maximumFractionDigits: 2,
       });
     } catch (e) {
-      return { format: function (n) { return "€" + Number(n).toFixed(2); } };
+      return { format: function (n) { return symbolFor(code) + Number(n).toFixed(2); } };
     }
-  })();
+  }
+
+  var currencyCode = "EUR";
+  var currencySymbol = symbolFor(currencyCode);
+  var currency = makeCurrency(currencyCode);
 
   /**
    * Display formatting helpers shared by the dashboard and the charts.
@@ -56,9 +84,9 @@
       var v = Number(n) || 0;
       var abs = Math.abs(v);
       var sign = v < 0 ? "-" : "";
-      if (abs >= 1e6) return sign + "€" + (abs / 1e6).toFixed(abs >= 1e7 ? 0 : 1) + "M";
-      if (abs >= 1e3) return sign + "€" + (abs / 1e3).toFixed(abs >= 1e4 ? 0 : 1) + "k";
-      return sign + "€" + abs.toFixed(0);
+      if (abs >= 1e6) return sign + currencySymbol + (abs / 1e6).toFixed(abs >= 1e7 ? 0 : 1) + "M";
+      if (abs >= 1e3) return sign + currencySymbol + (abs / 1e3).toFixed(abs >= 1e4 ? 0 : 1) + "k";
+      return sign + currencySymbol + abs.toFixed(0);
     },
     signed: function (n) {
       var v = Number(n) || 0;
@@ -83,6 +111,16 @@
     clamp: function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); },
     lerp: function (a, b, t) { return a + (b - a) * t; },
     prefersReducedMotion: prefersReducedMotion,
+    currencyCode: function () { return currencyCode; },
+    currencySymbol: function () { return currencySymbol; },
+    setCurrency: function (code) {
+      var next = String(code || "").toUpperCase();
+      if (!/^[A-Z]{3}$/.test(next) || next === currencyCode) return false;
+      currencyCode = next;
+      currencySymbol = symbolFor(next);
+      currency = makeCurrency(next);
+      return true;
+    },
   };
 
   /**

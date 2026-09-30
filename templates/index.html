@@ -8,6 +8,16 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("finlify.theme");
+      if (t === "dark" || t === "light" || t === "auto") {
+        document.documentElement.dataset.theme = t;
+      }
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
 
@@ -45,7 +55,100 @@
   </div>
 </header>
 
-<main id="overview">
+<div class="auth" id="authGate" hidden>
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">FINLIFY</span>
+      <span class="brand-tag">LOCAL</span>
+    </div>
+
+    <div class="auth-views" id="authViews">
+
+      <form class="auth-view" id="authSetup" novalidate>
+        <h1 class="auth-title">This ledger is yours</h1>
+        <p class="auth-sub">
+          A ledger is already on this machine. Name it and set a password to take
+          ownership of every transaction, category, and account already here.
+        </p>
+        <label class="field">
+          <span>Your name</span>
+          <input type="text" id="setupUsername" maxlength="40" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="setupPassword" minlength="8" autocomplete="new-password" required>
+        </label>
+        <div class="auth-row">
+          <label class="field">
+            <span>Currency</span>
+            <select id="setupCurrency"></select>
+          </label>
+          <div class="field">
+            <span>Appearance</span>
+            <div class="segmented auth-seg" role="group" aria-label="Appearance">
+              <button type="button" class="seg is-active" data-theme-choice="dark">Dark</button>
+              <button type="button" class="seg" data-theme-choice="light">Light</button>
+              <button type="button" class="seg" data-theme-choice="auto">Auto</button>
+            </div>
+          </div>
+        </div>
+        <p class="form-error" id="setupError" hidden></p>
+        <button class="btn btn-primary auth-submit" type="submit" id="setupSubmit">Claim this ledger</button>
+      </form>
+
+      <form class="auth-view" id="authSignIn" hidden novalidate>
+        <h1 class="auth-title">Welcome back</h1>
+        <p class="auth-sub">Sign in to open your ledger on this machine.</p>
+        <label class="field">
+          <span>Username</span>
+          <input type="text" id="signinUsername" maxlength="40" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="signinPassword" autocomplete="current-password" required>
+        </label>
+        <p class="form-error" id="signinError" hidden></p>
+        <button class="btn btn-primary auth-submit" type="submit" id="signinSubmit">Sign in</button>
+        <p class="auth-alt">
+          Need a separate ledger on this machine?
+          <button type="button" class="link-btn" id="toRegister">Create an account</button>
+        </p>
+      </form>
+
+      <form class="auth-view" id="authRegister" hidden novalidate>
+        <h1 class="auth-title">Create an account</h1>
+        <p class="auth-sub">
+          You will get your own empty ledger, with its own transactions, categories,
+          budgets, and accounts. Nothing you add is visible to anyone else.
+        </p>
+        <label class="field">
+          <span>Username</span>
+          <input type="text" id="registerUsername" maxlength="40" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Display name</span>
+          <input type="text" id="registerName" maxlength="60" placeholder="Optional" autocomplete="name">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="registerPassword" minlength="8" autocomplete="new-password" required>
+        </label>
+        <p class="form-error" id="registerError" hidden></p>
+        <button class="btn btn-primary auth-submit" type="submit" id="registerSubmit">Create account</button>
+        <p class="auth-alt">
+          Already have one?
+          <button type="button" class="link-btn" id="toSignIn">Sign in instead</button>
+        </p>
+      </form>
+
+    </div>
+
+    <p class="auth-foot">Everything stays in <code>finlify.db</code> on this machine.</p>
+  </div>
+</div>
+
+<main id="overview" hidden>
 
   <section class="hero">
     <div class="hero-text">
@@ -396,6 +499,7 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="/static/charts.js"></script>
+<script src="/static/auth.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
