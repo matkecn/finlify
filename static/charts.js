@@ -603,8 +603,11 @@
     ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.fillText("TOTAL", cx, cy - 12);
     ctx.fillStyle = cssVar("--text", "#e9edf5");
-    ctx.font = "500 18px ui-sans-serif, system-ui, sans-serif";
-    ctx.fillText(FX.compact(total), cx, cy + 8);
+    // Show the exact total rather than a whole-unit compaction, which read as
+    // €18 for a €17.50 ledger and disagreed with the legend beside it.
+    var totalLabel = FX.money(total);
+    ctx.font = "500 " + (totalLabel.length > 6 ? 14 : 18) + "px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText(totalLabel, cx, cy + 8);
     ctx.restore();
   };
 

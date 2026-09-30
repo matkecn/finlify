@@ -808,7 +808,9 @@ def build_summary(db: Session, user_id: int) -> dict:
 
     elapsed = max(1, today.day)
     days_in_month = calendar.monthrange(today.year, today.month)[1]
-    projected = round(month_expenses / elapsed) * days_in_month
+    # Scale the exact cents total and round once. Rounding the daily rate first
+    # loses a cent on the way back out (17.50 over 30 days became 17.40).
+    projected = round(month_expenses * days_in_month / elapsed)
 
     savings_rate = round(balance / income * 100, 2) if income else 0.0
     month_savings_rate = (

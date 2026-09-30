@@ -775,8 +775,8 @@
       categories.length + " categories · " + FX.money(total) + " total";
     $("categoryChart").setAttribute(
       "aria-label",
-      "Spending mix by category. Largest: " + categories[0].category +
-        " at " + categories[0].pct.toFixed(1) + " percent."
+      "Spending mix by category. Total " + FX.money(total) + ". Largest: " +
+        categories[0].category + " at " + categories[0].pct.toFixed(1) + " percent."
     );
   }
 

@@ -108,11 +108,22 @@ def test_projected_and_average_spend_are_consistent(client):
     add(client, "20.00", category="Groceries")
     month = client.get("/api/summary").json()["month"]
     expected_projected = from_cents(
-        round(month["expenses_cents"] / month["days_elapsed"]) * month["days_in_month"]
+        round(month["expenses_cents"] * month["days_in_month"] / month["days_elapsed"])
     )
     expected_daily = from_cents(round(month["expenses_cents"] / month["days_elapsed"]))
     assert month["projected_expenses"] == expected_projected
     assert month["avg_daily_spend"] == expected_daily
+
+
+def test_projection_never_undershoots_from_daily_rate_rounding(client):
+    add(client, "17.50", category="Groceries")
+    month = client.get("/api/summary").json()["month"]
+    # Extrapolating to a month no shorter than the days elapsed can only hold or
+    # grow the total, so a rounding artefact must never report less than spent.
+    assert month["projected_expenses"] >= month["expenses"]
+    assert month["projected_expenses"] == from_cents(
+        round(month["expenses_cents"] * month["days_in_month"] / month["days_elapsed"])
+    )
 
 
 def test_month_savings_rate_tracks_the_previous_month(client):
