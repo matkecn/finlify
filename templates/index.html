@@ -52,6 +52,24 @@
     <button class="btn btn-primary" id="openModal">
       <span class="btn-glyph">+</span> Add
     </button>
+    <div class="user-menu">
+      <button class="user-chip" id="userChip" aria-haspopup="true" aria-expanded="false">
+        <span class="user-avatar" id="userAvatar">·</span>
+        <span class="user-name" id="userName">—</span>
+      </button>
+      <div class="user-pop" id="userPop" hidden>
+        <div class="user-pop-head">
+          <span class="user-avatar user-avatar-lg" id="userAvatarLarge">·</span>
+          <div class="user-pop-id">
+            <strong id="userPopName">—</strong>
+            <span class="user-pop-sub" id="userPopUsername">—</span>
+          </div>
+        </div>
+        <button class="user-pop-item" id="openSettings" type="button">Settings</button>
+        <button class="user-pop-item" id="signOutBtn" type="button">Sign out</button>
+        <p class="user-pop-note">This ledger belongs to one account on this machine.</p>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -493,6 +511,87 @@
         <button type="submit" class="btn btn-primary" id="txSubmit">Save transaction</button>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="settingsBackdrop" hidden>
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" id="closeSettings" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-scroll">
+      <section class="settings-block">
+        <h3 class="settings-title">Profile</h3>
+        <p class="settings-sub">How you appear on this machine.</p>
+        <label class="field">
+          <span>Display name</span>
+          <input type="text" id="settingsName" maxlength="60" placeholder="Optional" autocomplete="name">
+        </label>
+        <div class="field">
+          <span>Username</span>
+          <input type="text" id="settingsUsername" disabled>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <h3 class="settings-title">Money &amp; appearance</h3>
+        <p class="settings-sub">Applies to your ledger only, and to every chart.</p>
+        <label class="field">
+          <span>Currency</span>
+          <select id="settingsCurrency"></select>
+        </label>
+        <div class="field">
+          <span>Theme</span>
+          <div class="segmented" role="group" aria-label="Theme" id="settingsThemes">
+            <button type="button" class="seg" data-theme-choice="dark">Dark</button>
+            <button type="button" class="seg" data-theme-choice="light">Light</button>
+            <button type="button" class="seg" data-theme-choice="auto">Auto</button>
+          </div>
+          <p class="settings-hint" id="themeHint">Auto follows this system's appearance.</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="button" id="savePreferences">Save preferences</button>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <h3 class="settings-title">Password</h3>
+        <p class="settings-sub">Changing it signs out every other session.</p>
+        <form id="passwordForm">
+          <label class="field">
+            <span>Current password</span>
+            <input type="password" id="passwordCurrent" autocomplete="current-password">
+          </label>
+          <label class="field">
+            <span>New password</span>
+            <input type="password" id="passwordNext" minlength="8" autocomplete="new-password">
+          </label>
+          <p class="form-error" id="passwordError" hidden></p>
+          <div class="modal-actions">
+            <button class="btn btn-primary" type="submit" id="passwordSubmit">Change password</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="settings-block" id="adminBlock" hidden>
+        <h3 class="settings-title">People on this machine</h3>
+        <p class="settings-sub">
+          Each account keeps its own transactions, categories, budgets, and accounts.
+          Your own account cannot be deleted.
+        </p>
+        <ul class="people" id="peopleList"></ul>
+        <form class="people-form" id="peopleForm">
+          <input type="text" id="personName" placeholder="New username" maxlength="40" autocomplete="off" required>
+          <input type="password" id="personPassword" placeholder="Password, 8+ characters" minlength="8" autocomplete="new-password" required>
+          <button class="btn btn-ghost" type="submit" id="personSubmit">Add account</button>
+        </form>
+        <p class="form-error" id="peopleError" hidden></p>
+      </section>
+    </div>
   </div>
 </div>
 

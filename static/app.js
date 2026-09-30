@@ -31,6 +31,7 @@
     total: 0,
     categories: [],
     accounts: [],
+    seriesColours: null,
     filters: { search: "", type: "", category: "", account: "", sort: "date", order: "desc" },
   };
 
@@ -178,9 +179,17 @@
 
   /** Instantiate every chart on the page. */
   function initCharts() {
+    var series = {
+      income: FX.token("--series-1", "#5eead4"),
+      violet: FX.token("--series-2", "#a78bfa"),
+      pink: FX.token("--series-3", "#f0abfc"),
+      lime: FX.token("--series-4", "#bef264"),
+    };
+    state.seriesColours = series;
+
     charts.cashflow = new C.AreaChart($("cashflowChart"), {
-      incomeColor: "#5eead4",
-      expenseColor: "#f0abfc",
+      incomeColor: series.income,
+      expenseColor: series.pink,
       hidden: state.hiddenSeries,
       onHover: showCashflowTip,
     });
@@ -188,12 +197,38 @@
       onHover: function (item) { highlightLegend(item ? item.category : null); },
     });
     charts.daily = new C.BarChart($("dailyChart"), { onHover: showDailyTip });
+    charts.daily.opts.color = series.violet;
     charts.sparks = {
-      balance: new C.Sparkline($("sparkBalance"), { color: "#5eead4" }),
-      income: new C.Sparkline($("sparkIncome"), { color: "#a78bfa" }),
-      expenses: new C.Sparkline($("sparkExpenses"), { color: "#f0abfc" }),
-      savings: new C.Sparkline($("sparkSavings"), { color: "#bef264" }),
+      balance: new C.Sparkline($("sparkBalance"), { color: series.income }),
+      income: new C.Sparkline($("sparkIncome"), { color: series.violet }),
+      expenses: new C.Sparkline($("sparkExpenses"), { color: series.pink }),
+      savings: new C.Sparkline($("sparkSavings"), { color: series.lime }),
     };
+  }
+
+  /**
+   * Repaint every chart after the theme changed under it.
+   *
+   * Series colours come from theme tokens, so they are re-read here and pushed
+   * into the existing charts rather than rebuilding them.
+   */
+  function repaintCharts() {
+    if (!state.seriesColours) return;
+    var series = state.seriesColours;
+    series.income = FX.token("--series-1", series.income);
+    series.violet = FX.token("--series-2", series.violet);
+    series.pink = FX.token("--series-3", series.pink);
+    series.lime = FX.token("--series-4", series.lime);
+    charts.cashflow.opts.incomeColor = series.income;
+    charts.cashflow.opts.expenseColor = series.pink;
+    if (charts.daily) charts.daily.opts.color = series.violet;
+    if (charts.sparks) {
+      charts.sparks.balance.opts.color = series.income;
+      charts.sparks.income.opts.color = series.violet;
+      charts.sparks.expenses.opts.color = series.pink;
+      charts.sparks.savings.opts.color = series.lime;
+    }
+    C.refresh();
   }
 
   /**
@@ -1302,6 +1337,7 @@
     started = true;
 
     initCharts();
+    auth.onThemeChanged(repaintCharts);
     bindFilters();
     bindRanges();
     startClock();

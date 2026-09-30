@@ -33,6 +33,7 @@
   };
 
   var sessionLost = null;
+  var themeListeners = [];
   var $ = function (id) { return document.getElementById(id); };
 
   /**
@@ -70,9 +71,13 @@
    */
   function applyTheme(theme) {
     if (THEMES.indexOf(theme) === -1) theme = "dark";
+    var changed = document.documentElement.dataset.theme !== theme;
     document.documentElement.dataset.theme = theme;
     write(THEME_KEY, theme);
     if (state.user) state.user.theme = theme;
+    if (changed) {
+      themeListeners.forEach(function (fn) { fn(theme); });
+    }
   }
 
   /**
@@ -386,6 +391,7 @@
     markTheme: markTheme,
     cachedName: function () { return read(NAME_KEY); },
     onSessionLost: function (fn) { sessionLost = fn; },
+    onThemeChanged: function (fn) { themeListeners.push(fn); },
     user: function () { return state.user; },
   };
 

@@ -67,6 +67,27 @@
     }
   }
 
+  /**
+   * Read a colour from a CSS custom property on the document root.
+   *
+   * Charts draw on a canvas, so they cannot inherit CSS. Reading the same
+   * tokens the stylesheet uses keeps every surface in step with the theme, and
+   * a redraw after a theme change is all it takes to repaint.
+   *
+   * @param {string} name The custom property name, including the dashes.
+   * @param {string} fallback A colour to use when the property is unset.
+   * @returns {string} The trimmed property value, or the fallback.
+   */
+  function cssVar(name, fallback) {
+    try {
+      var value = window.getComputedStyle(document.documentElement)
+        .getPropertyValue(name);
+      return value && value.trim() ? value.trim() : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
   var currencyCode = "EUR";
   var currencySymbol = symbolFor(currencyCode);
   var currency = makeCurrency(currencyCode);
@@ -108,6 +129,7 @@
       var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
       return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     },
+    token: cssVar,
     clamp: function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); },
     lerp: function (a, b, t) { return a + (b - a) * t; },
     prefersReducedMotion: prefersReducedMotion,
@@ -197,7 +219,10 @@
    * @param {Object} [opts] Options such as colours, duration, and an onHover
    *   callback invoked with the hovered datum or null.
    */
+  var live = [];
+
   function BaseChart(canvas, opts) {
+    live.push(this);
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.opts = opts || {};
@@ -290,6 +315,11 @@
   };
 
   /**
+   * Repaint a chart in place, used after the theme changes underneath it.
+   */
+  BaseChart.prototype.redraw = function () { this.animate(); };
+
+  /**
    * Convert a pointer position into a hovered datum. The base implementation
    * does nothing; subclasses override it for hit testing.
    */
@@ -351,12 +381,12 @@
     for (var g = 0; g <= 4; g++) {
       var gy = padT + (plotH / 4) * g;
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.strokeStyle = cssVar("--chart-grid", "rgba(255,255,255,0.06)");
       ctx.lineWidth = 1;
       ctx.moveTo(padL, gy + 0.5);
       ctx.lineTo(padL + plotW, gy + 0.5);
       ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,0.32)";
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.32)");
       ctx.fillText(FX.compact(top - (top / 4) * g), padL - 10, gy);
     }
 
@@ -365,7 +395,7 @@
     var stepLabel = Math.max(1, Math.ceil(data.length / 7));
     data.forEach(function (d, i) {
       if (i % stepLabel !== 0 && i !== data.length - 1) return;
-      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.3)");
       ctx.fillText(d.label, xFor(i), padT + plotH + 8);
     });
 
@@ -409,7 +439,7 @@
         var hp = pts[self.hoverIndex];
         ctx.beginPath();
         ctx.arc(hp.x, hp.y, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = "#07080c";
+        ctx.fillStyle = cssVar("--chart-hole", "#07080c");
         ctx.fill();
         ctx.strokeStyle = s.color;
         ctx.lineWidth = 2.5;
@@ -421,7 +451,7 @@
       var hx = xFor(this.hoverIndex);
       ctx.beginPath();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(255,255,255,0.22)";
+      ctx.strokeStyle = cssVar("--chart-hover", "rgba(255,255,255,0.22)");
       ctx.lineWidth = 1;
       ctx.moveTo(hx, padT);
       ctx.lineTo(hx, padT + plotH);
@@ -433,7 +463,7 @@
   /** Draw the placeholder shown when the series is empty. */
   AreaChart.prototype.drawEmpty = function () {
     var ctx = this.ctx;
-    ctx.fillStyle = "rgba(255,255,255,0.28)";
+    ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.28)");
     ctx.font = "500 12px ui-sans-serif, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -478,7 +508,7 @@
     ctx.clearRect(0, 0, w, h);
     var data = this.data;
     if (!data.length) {
-      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.28)");
       ctx.font = "500 12px ui-sans-serif, system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -530,10 +560,10 @@
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(255,255,255,0.34)";
+    ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.34)");
     ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.fillText("TOTAL", cx, cy - 12);
-    ctx.fillStyle = "#e9edf5";
+    ctx.fillStyle = cssVar("--text", "#e9edf5");
     ctx.font = "500 18px ui-sans-serif, system-ui, sans-serif";
     ctx.fillText(FX.compact(total), cx, cy + 8);
     ctx.restore();
@@ -610,12 +640,12 @@
       { y: padT + plotH, v: -top },
     ].forEach(function (ln) {
       ctx.beginPath();
-      ctx.strokeStyle = ln.v === 0 ? "rgba(140,170,255,0.22)" : "rgba(140,170,255,0.08)";
+      ctx.strokeStyle = ln.v === 0 ? cssVar("--chart-zero", "rgba(140,170,255,0.22)") : cssVar("--chart-grid", "rgba(140,170,255,0.08)");
       ctx.lineWidth = 1;
       ctx.moveTo(padL, ln.y + 0.5);
       ctx.lineTo(padL + plotW, ln.y + 0.5);
       ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(255,255,255,0.3)");
       ctx.fillText(FX.compact(ln.v), padL - 8, ln.y);
     });
 
@@ -628,7 +658,9 @@
       var barH = ratio * (plotH / 2);
       var isHover = this.hoverIndex === i;
       var positive = d.net >= 0;
-      var color = positive ? "#22d3ee" : "#f472b6";
+      var color = positive
+        ? cssVar("--pos", "#22d3ee")
+        : cssVar("--neg", "#f472b6");
 
       ctx.save();
       ctx.beginPath();
@@ -650,7 +682,7 @@
     var every = Math.max(1, Math.ceil(data.length / 6));
     data.forEach(function (d, i) {
       if (i % every !== 0 && i !== data.length - 1) return;
-      ctx.fillStyle = "rgba(150,170,215,0.5)";
+      ctx.fillStyle = cssVar("--chart-axis", "rgba(150,170,215,0.5)");
       ctx.fillText(FX.dayShort(d.date), padL + slot * i + slot / 2, padT + plotH + 6);
     });
 
@@ -658,7 +690,7 @@
       var d2 = this.data[this.hoverIndex];
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillStyle = "#e6edff";
+      ctx.fillStyle = cssVar("--text", "#e6edff");
       ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.fillText(FX.compact(d2.net), padL + slot * this.hoverIndex + slot / 2, zeroY - (d2.net >= 0 ? Math.abs(d2.net) / top * (plotH / 2) : 0) - 6);
       ctx.font = "500 9px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -782,5 +814,10 @@
     DonutChart: DonutChart,
     BarChart: BarChart,
     Sparkline: Sparkline,
+    refresh: function () {
+      live.forEach(function (chart) {
+        if (typeof chart.redraw === "function") chart.redraw();
+      });
+    },
   };
 })();
